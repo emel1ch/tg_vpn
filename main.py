@@ -203,16 +203,42 @@ async def guides_menu(callback: CallbackQuery):
 
 
 @dp.callback_query(F.data == "status")
-async def status_callback(callback: CallbackQuery):
-    user = await db.get_user(callback.from_user.id)
-    if user:
-        status = "✅ Активен" if user['is_active'] else "❌ Отключен"
-        # Переводим миллисекунды в красивую дату
-        exp_date = datetime.fromtimestamp(user['expiry_ms'] / 1000).strftime('%d.%m.%Y')
-        text = f"👤 **Профиль:**\n\nСтатус: {status}\nДо: {exp_date}\nВсего внесено: {user['total_paid']}₽"
+async def status_callback(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    user = await db.get_user(uid)
+
+    if not user:
+        await callback.message.answer("❌ Вас нет в базе. Нажмите /start")
+        await callback.answer()
+        return
+
+    now_ms = int(time.time() * 1000)
+    expiry = user['expiry_ms']
+
+    # Считаем остаток дней
+    if expiry > now_ms:
+        days_left = (expiry - now_ms) // (24 * 3600 * 1000)
+        status_text = f"🟢 **Активен** (осталось дней: {days_left})"
     else:
-        text = "Профиль не найден."
-    await callback.message.edit_text(text, reply_markup=get_back_kb())
+        status_text = "🔴 **Отключен** (подписка закончилась)"
+
+    # Конвертируем дату для красоты
+    expiry_date = datetime.fromtimestamp(expiry / 1000).strftime('%d.%m.%Y %H:%M') if expiry > 0 else "Нет данных"
+
+    # Формируем базовый текст
+    text = (
+        f"📊 **Твоя статистика:**\n\n"
+        f"👤 ID: `{uid}`\n"
+        f"⚡ Статус: {status_text}\n"
+        f"📅 Действует до: {expiry_date}\n"
+    )
+
+    # ЕСЛИ У ЮЗЕРА ЕСТЬ КЛЮЧ И ОН АКТИВЕН — ДОБАВЛЯЕМ ССЫЛКУ В СТАТУС
+    if user['sub_id'] and expiry > now_ms:
+        link = f"https://gtnforever.space:2096/sub/private-access-99/{user['sub_id']}"
+        text += f"\n🔗 **Твоя ссылка для подключения:**\n`{link}`\n*(Нажми на ссылку, чтобы скопировать)*"
+
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=get_main_menu())
     await callback.answer()
 
 
@@ -228,14 +254,6 @@ async def history_callback(callback: CallbackQuery):
     else:
         text += "*Операций пока нет.*"
     await callback.message.edit_text(text, reply_markup=get_back_kb(), parse_mode="Markdown")
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "renew")
-async def renew_callback(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "💳 **Оплата (200₽/мес)**\n\nСБП: `+79991234567` (Андрей Е.)\n\nПришли чек фото-сообщением.",
-        reply_markup=get_back_kb(), parse_mode="Markdown")
     await callback.answer()
 
 
@@ -278,26 +296,42 @@ async def pay_confirm(callback: CallbackQuery):
     if action == "pay_yes":
         user = await db.get_user(uid)
         now_ms = int(time.time() * 1000)
-        current_expiry = user['expiry_ms']
 
-        # Если подписка еще активна, плюсуем месяц. Если уже кончилась - месяц от сегодня.
-        new_db_expiry = now_ms + MONTH_MS if current_expiry < now_ms else current_expiry + MONTH_MS
-        new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS  # Даем фору для панели
+        # 1. ЕСЛИ КЛЮЧА ЕЩЕ НЕТ (НОВАЯ ОПЛАТА)
+        if not user['uuid']:
+            user_uuid = str(uuid.uuid4())
+            user_email = f"ID: {uid}"
+            new_db_expiry = now_ms + MONTH_MS
+            new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS
 
-        u_email = f"ID: {uid}"
+            res = await panel.add_user(INBOUND_ID, user_email, user_uuid, new_panel_expiry)
 
-        res = await panel.extend_user(INBOUND_ID, user['uuid'], u_email, user['sub_id'], new_panel_expiry)
+            if res and res.get("success"):
+                await db.set_user_keys(uid, user_uuid, res["sub_id"])
+                await db.confirm_payment(uid, 200, new_db_expiry)
+                link = f"https://gtnforever.space:2096/sub/private-access-99/{res['sub_id']}"
 
-        if res and res.get("success"):
-            await db.confirm_payment(uid, 200, new_db_expiry)
-            link = f"https://gtnforever.space:2096/sub/private-access-99/{user['sub_id']}"
-            await bot.send_message(uid,
-                                   f"✅ **Оплата принята! Продлено на 30 дней.**\n\n🔗 Твоя ссылка:\n`{link}`\n\nОбнови подписку в Happ.",
-                                   parse_mode="Markdown")
-            await callback.message.edit_caption(caption=f"✅ Подписка продлена для {user_mention}",
-                                                parse_mode="Markdown")
+                await bot.send_message(uid, f"🎉 **Оплата успешна! Твой VPN создан на 30 дней.**\n\n🔗 Твоя ссылка:\n`{link}`\n\nДля настройки используй кнопку «📚 Инструкции» в меню.", parse_mode="Markdown")
+                await callback.message.edit_caption(caption=f"✅ Подписка СОЗДАНА для {user_mention}", parse_mode="Markdown")
+            else:
+                await callback.message.edit_caption(caption=f"❌ Ошибка API (Создание) для {user_mention}", parse_mode="Markdown")
+
+        # 2. ЕСЛИ КЛЮЧ УЖЕ ЕСТЬ (ПРОДЛЕНИЕ)
         else:
-            await callback.message.edit_caption(caption=f"❌ Ошибка API для {user_mention}", parse_mode="Markdown")
+            current_expiry = user['expiry_ms']
+            new_db_expiry = now_ms + MONTH_MS if current_expiry < now_ms else current_expiry + MONTH_MS
+            new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS
+
+            u_email = f"ID: {uid}"
+            res = await panel.extend_user(INBOUND_ID, user['uuid'], u_email, user['sub_id'], new_panel_expiry)
+
+            if res and res.get("success"):
+                await db.confirm_payment(uid, 200, new_db_expiry)
+                link = f"https://gtnforever.space:2096/sub/private-access-99/{user['sub_id']}"
+                await bot.send_message(uid, f"✅ **Оплата принята! Продлено на 30 дней.**\n\n🔗 Твоя ссылка:\n`{link}`\n\nОбнови подписку в Happ.", parse_mode="Markdown")
+                await callback.message.edit_caption(caption=f"✅ Подписка ПРОДЛЕНА для {user_mention}", parse_mode="Markdown")
+            else:
+                await callback.message.edit_caption(caption=f"❌ Ошибка API (Продление) для {user_mention}", parse_mode="Markdown")
     else:
         await bot.send_message(uid, "❌ Оплата отклонена.")
         await callback.message.edit_caption(caption=f"❌ Отказано для {user_mention}", parse_mode="Markdown")
@@ -309,8 +343,7 @@ async def manual_give_access(message: types.Message, command: CommandObject):
     if message.from_user.id != ADMIN_ID: return
 
     if not command.args or len(command.args.split()) != 2:
-        await message.answer("Использование: `/give <ID или @username> <кол-во дней>`\nПример: `/give 123456789 60`",
-                             parse_mode="Markdown")
+        await message.answer("Использование: `/give <ID или @username> <кол-во дней>`\nПример: `/give 123456789 60`", parse_mode="Markdown")
         return
 
     target, days_str = command.args.split()
@@ -330,24 +363,83 @@ async def manual_give_access(message: types.Message, command: CommandObject):
         return
 
     now_ms = int(time.time() * 1000)
-    new_db_expiry = now_ms + days_to_add_ms if user['expiry_ms'] < now_ms else user['expiry_ms'] + days_to_add_ms
-    new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS
 
-    res = await panel.extend_user(INBOUND_ID, user['uuid'], f"ID: {uid}", user['sub_id'], new_panel_expiry)
+    # 1. ЕСЛИ КЛЮЧА ЕЩЕ НЕТ
+    if not user['uuid']:
+        user_uuid = str(uuid.uuid4())
+        user_email = f"ID: {uid}"
+        new_db_expiry = now_ms + days_to_add_ms
+        new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS
 
-    if res and res.get("success"):
-        # Обновляем БД вручную (без чека и суммы)
-        async with aiosqlite.connect(db.db_file) as d_conn:
-            await d_conn.execute("UPDATE users SET expiry_ms = ?, is_active = 1 WHERE tg_id = ?", (new_db_expiry, uid))
-            await d_conn.commit()
+        res = await panel.add_user(INBOUND_ID, user_email, user_uuid, new_panel_expiry)
 
-        await message.answer(f"✅ Успех! Юзеру `{uid}` добавлено {days_str} дней.", parse_mode="Markdown")
+        if res and res.get("success"):
+            await db.set_user_keys(uid, user_uuid, res["sub_id"])
+            async with aiosqlite.connect(db.db_file) as d_conn:
+                await d_conn.execute("UPDATE users SET expiry_ms = ?, is_active = 1 WHERE tg_id = ?", (new_db_expiry, uid))
+                await d_conn.commit()
+
+            link = f"https://gtnforever.space:2096/sub/private-access-99/{res['sub_id']}"
+            await message.answer(f"✅ Успех! Создан ключ для `{uid}` на {days_str} дней.", parse_mode="Markdown")
+            try:
+                await bot.send_message(uid, f"🎁 Администратор выдал тебе доступ на {days_str} дней!\n\n🔗 **Твоя ссылка:**\n`{link}`", parse_mode="Markdown")
+            except: pass
+        else:
+            await message.answer("❌ Ошибка API панели при создании ключа.")
+
+    # 2. ЕСЛИ КЛЮЧ УЖЕ ЕСТЬ
+    else:
+        new_db_expiry = now_ms + days_to_add_ms if user['expiry_ms'] < now_ms else user['expiry_ms'] + days_to_add_ms
+        new_panel_expiry = new_db_expiry + GRACE_PERIOD_MS
+
+        res = await panel.extend_user(INBOUND_ID, user['uuid'], f"ID: {uid}", user['sub_id'], new_panel_expiry)
+
+        if res and res.get("success"):
+            async with aiosqlite.connect(db.db_file) as d_conn:
+                await d_conn.execute("UPDATE users SET expiry_ms = ?, is_active = 1 WHERE tg_id = ?", (new_db_expiry, uid))
+                await d_conn.commit()
+
+            link = f"https://gtnforever.space:2096/sub/private-access-99/{user['sub_id']}"
+            await message.answer(f"✅ Успех! Юзеру `{uid}` добавлено {days_str} дней.", parse_mode="Markdown")
+            try:
+                await bot.send_message(uid, f"🎁 Администратор продлил твою подписку на {days_str} дней!\n\n🔗 **Твоя ссылка:**\n`{link}`", parse_mode="Markdown")
+            except: pass
+        else:
+            await message.answer("❌ Ошибка API при ручном продлении.")
+
+
+@dp.message(Command("db"))
+async def send_db_backup(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        db_file = FSInputFile(DB_NAME)
+        await message.answer_document(
+            document=db_file,
+            caption=f"📦 **Бэкап базы данных**\nДата: {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@dp.message(Command("sendall"))
+async def mass_send(message: types.Message, command: CommandObject):
+    if message.from_user.id != ADMIN_ID: return
+    if not command.args:
+        await message.answer("Использование: `/sendall <текст сообщения>`", parse_mode="Markdown")
+        return
+
+    users = await db.get_all_active_users()
+    count = 0
+    for u in users:
         try:
-            await bot.send_message(uid, f"🎁 Администратор продлил твою подписку на {days_str} дней!")
+            await bot.send_message(u['tg_id'], command.args)
+            count += 1
+            await asyncio.sleep(0.05)
         except:
             pass
-    else:
-        await message.answer("❌ Ошибка API при ручном продлении.")
+
+    await message.answer(f"✅ Рассылка завершена!\nДоставлено: {count} пользователям.")
 
 
 # --- ЖИЗНЕННЫЙ ЦИКЛ БОТА ---
