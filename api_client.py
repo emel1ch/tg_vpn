@@ -1,66 +1,73 @@
 import aiohttp
-import json
-import string
-import random
 import logging
-from config import PANEL_URL, PANEL_LOGIN, PANEL_PASSWORD
+from config import PANEL_URL, PANEL_USER, PANEL_PASSWORD
 
-def generate_sub_id(length=16):
-    characters = string.ascii_lowercase + string.digits
-    return ''.join(random.choice(characters) for _ in range(length))
 
 class PanelAPI:
     def __init__(self):
-        self.base_url = PANEL_URL
-        self.username = PANEL_LOGIN
+        self.base_url = PANEL_URL.rstrip('/')
+        self.username = PANEL_USER
         self.password = PANEL_PASSWORD
-        self.session = None
+        self.token = None
 
-    async def _get_session(self):
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
-
-    async def login(self):
-        session = await self._get_session()
-        payload = {"username": self.username, "password": self.password}
+    async def _get_token(self):
+        url = f"{self.base_url}/api/admin/token"
+        data = {"username": self.username, "password": self.password}
         try:
-            async with session.post(f"{self.base_url}/login", data=payload) as response:
-                return response.status == 200
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=data) as resp:
+                    if resp.status == 200:
+                        res = await resp.json()
+                        self.token = res['access_token']
+                        return True
+                    logging.error(f"Ошибка авторизации в Marzban: {resp.status}")
+                    return False
         except Exception as e:
-            logging.error(f"Ошибка логина в панель: {e}")
+            logging.error(f"Ошибка связи с панелью: {e}")
             return False
 
     async def add_user(self, inbound_id, user_email, user_uuid, expiry_ms):
-        session = await self._get_session()
-        await self.login()
-        sub_id = generate_sub_id()
+        """Создает юзера в Marzban. user_uuid = Telegram ID"""
+        if not self.token: await self._get_token()
 
-        client_settings = {
-            "id": user_uuid, "alterId": 0, "email": user_email, "limitIp": 2,
-            "totalGB": 0, "expiryTime": expiry_ms, "enable": True,
-            "tgId": "", "subId": sub_id
+        url = f"{self.base_url}/api/user"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
+
+        payload = {
+            "username": str(user_uuid),
+            "expire": expiry_s,
+            "data_limit": 0
         }
-        payload = {"id": inbound_id, "settings": json.dumps({"clients": [client_settings]})}
 
-        async with session.post(f"{self.base_url}/panel/api/inbounds/addClient", data=payload) as resp:
-            result = await resp.json()
-            result["sub_id"] = sub_id
-            return result
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    # Возвращаем ссылку
+                    return {"success": True, "subscription_url": data.get('subscription_url', '')}
+                elif resp.status == 409:  # Если уже есть
+                    return {"success": True}
+                return {"success": False}
 
-    async def extend_user(self, inbound_id, client_uuid, user_email, sub_id, new_expiry_ms):
-        session = await self._get_session()
-        await self.login()
+    async def get_user(self, user_uuid):
+        """Получает инфу о юзере напрямую из Marzban"""
+        if not self.token: await self._get_token()
+        url = f"{self.base_url}/api/user/{user_uuid}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
 
-        client_settings = {
-            "id": client_uuid, "email": user_email, "limitIp": 2,
-            "totalGB": 0, "expiryTime": new_expiry_ms, "enable": True, "subId": sub_id
-        }
-        payload = {"id": inbound_id, "settings": json.dumps({"clients": [client_settings]})}
-
-        async with session.post(f"{self.base_url}/panel/api/inbounds/updateClient/{client_uuid}", data=payload) as resp:
-            return await resp.json()
+    async def extend_user(self, inbound_id, user_uuid, user_email, sub_id, new_expiry_ms):
+        if not self.token: await self._get_token()
+        url = f"{self.base_url}/api/user/{user_uuid}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.put(url, json={"expire": int(new_expiry_ms / 1000)}, headers=headers) as resp:
+                return {"success": resp.status == 200}
 
     async def close(self):
-        if self.session:
-            await self.session.close()
+        pass

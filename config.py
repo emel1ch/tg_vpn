@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from datetime import datetime
 
 load_dotenv()
 
@@ -8,7 +9,14 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 GROUP_ID = int(os.getenv("GROUP_ID"))
 DB_NAME = os.getenv("DB_NAME")
 
-PANEL_URL = os.getenv("PANEL_URL")
-PANEL_LOGIN = os.getenv("PANEL_USER")
+PANEL_URL = os.getenv("PANEL_URL").rstrip('/')
+PANEL_USER = os.getenv("PANEL_USER")
 PANEL_PASSWORD = os.getenv("PANEL_PWD")
-INBOUND_ID = 1  # ID твоего входящего подключения (посмотри в панели в списке подключений)
+
+# Настройки времени и цен
+INBOUND_ID = 1
+TRIAL_DAYS = 3
+MONTH_MS = 30 * 24 * 60 * 60 * 1000
+PAYMENT_PRICE = 200
+QR_FILE_PATH = "qr.jpg"
+PAYMENT_LINK = "https://finance.ozon.ru/apps/sbp/ozonbankpay/019db3db-f12d-7107-b6ca-a55329933289"

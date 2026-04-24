@@ -3,3 +3,4 @@ aiohttp
 aiosqlite
 apscheduler
 python-dotenv
+pytz
