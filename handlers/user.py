@@ -34,41 +34,37 @@ async def cmd_start(message: types.Message, state: FSMContext, db):
 
 
 @router.callback_query(F.data == "status")
-async def show_status(callback: types.CallbackQuery, db, panel):  # <-- Добавили panel
-    user = await db.get_user(callback.from_user.id)
-    if not user:
-        await callback.answer("Сначала нажми /start", show_alert=True)
+async def show_status(callback: types.CallbackQuery, db, panel):
+    user_id = callback.from_user.id
+    user_data = await db.get_user(user_id)
+
+    if not user_data:
+        await callback.answer("Запустите бота через /start", show_alert=True)
         return
 
-    now_ms = int(time.time() * 1000)
-    expiry = user['expiry_ms']
+    # 1. Проверяем наличие юзера в панели
+    marzban_user = await panel.get_user(str(user_id))
 
-    days = max(0, (expiry - now_ms) // (24 * 60 * 60 * 1000))
-    status = "🟢 Активен" if expiry > now_ms else "🔴 Истек"
+    # 2. Если юзера нет в панели (например, удалили), но подписка в БД активна — создаем заново
+    if not marzban_user and user_data['expiry_ms'] > int(time.time() * 1000):
+        await panel.add_user(1, "user", str(user_id), user_data['expiry_ms'])
+        marzban_user = await panel.get_user(str(user_id))
 
-    text = f"📊 **Твой статус:** {status}\n📅 **Осталось дней:** {days}\n\n"
+    status = "🟢 Активен" if user_data['expiry_ms'] > int(time.time() * 1000) else "🔴 Истек"
+    text = f"📊 **Статус:** {status}\n"
 
-    if expiry > now_ms:
-        # Стучимся в Marzban за актуальной ссылкой (по Telegram ID)
-        marzban_user = await panel.get_user(str(callback.from_user.id))
+    if marzban_user and 'subscription_url' in marzban_user:
+        sub_url = marzban_user['subscription_url']
+        # Проверка на абсолютный путь
+        if not sub_url.startswith("http"):
+            from config import PANEL_URL
+            sub_url = f"{PANEL_URL.rstrip('/')}{sub_url}"
 
-        if marzban_user and 'subscription_url' in marzban_user:
-            sub_url = marzban_user['subscription_url']
-
-            # Если Marzban отдает путь без домена (начинается с /sub/)
-            if not sub_url.startswith("http"):
-                from config import PANEL_URL
-                sub_url = f"{PANEL_URL.rstrip('/')}{sub_url}"
-
-            # Заодно обновляем правильную ссылку в нашей БД
-            await db.set_user_keys(callback.from_user.id, str(callback.from_user.id), sub_url)
-
-            text += f"🔗 **Твоя ссылка:**\n`{sub_url}`\n\n*(Скопируй её и вставь в приложение)*"
-        else:
-            text += "⏳ Ошибка получения ссылки. Обратись в поддержку."
+        text += f"🔗 **Ваша ссылка:**\n`{sub_url}`"
+    else:
+        text += "⚠️ Ссылка временно недоступна."
 
     await callback.message.edit_text(text, reply_markup=get_back_kb(), parse_mode="Markdown")
-
 @router.callback_query(F.data == "support")
 async def support_init(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(SupportState.waiting_for_msg)

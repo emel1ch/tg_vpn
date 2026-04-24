@@ -34,11 +34,30 @@ class PanelAPI:
         headers = {"Authorization": f"Bearer {self.token}"}
         expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
 
-        payload = {
-            "username": str(user_uuid),
-            "expire": expiry_s,
-            "data_limit": 0
-        }
+        async def add_user(self, inbound_id, user_email, user_uuid, expiry_ms):
+            if not self.token: await self._get_token()
+
+            url = f"{self.base_url}/api/user"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
+
+            # Хотфикс: явно указываем прокси и инбаунд
+            payload = {
+                "username": str(user_uuid),
+                "proxies": {"vless": {}},
+                "inbounds": {"vless": ["VLESS_TCP_TLS"]},  # Имя должно точно совпадать с панелью
+                "expire": expiry_s,
+                "data_limit": 0
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return {"success": True, "subscription_url": data.get('subscription_url', '')}
+                    elif resp.status == 409:
+                        return {"success": True}
+                    return {"success": False}
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers) as resp:
