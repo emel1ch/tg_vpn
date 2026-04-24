@@ -73,12 +73,17 @@ async def support_init(callback: types.CallbackQuery, state: FSMContext):
 
 @router.message(SupportState.waiting_for_msg)
 async def forward_support(message: types.Message, state: FSMContext, bot: Bot):
-    # Отправляем админу и в группу (для надежности)
-    report = f"🆘 **Новый вопрос!**\nОт: @{message.from_user.username}\nID: `{message.from_user.id}`\n\n{message.text}"
-    await bot.send_message(GROUP_ID, report, parse_mode="Markdown")
-    await state.clear()
-    await message.answer("✅ Отправлено! Ожидай ответа.", reply_markup=get_main_menu())
+    # Формируем "шапку" для админа
+    header = f"🆘 **Новый запрос в поддержку!**\nОт: @{message.from_user.username or 'скрыт'}\n🆔 ID: `{message.from_user.id}`\n\n"
 
+    # Сначала шлем инфо-сообщение
+    await bot.send_message(GROUP_ID, header, parse_mode="Markdown")
+
+    # Затем копируем само сообщение (текст, фото или что угодно другое)
+    await message.copy_to(GROUP_ID)
+
+    await state.clear()
+    await message.answer("✅ Твой вопрос передан админу. Ожидай ответа прямо здесь.", reply_markup=get_main_menu())
 
 @router.callback_query(F.data == "to_main")
 async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
