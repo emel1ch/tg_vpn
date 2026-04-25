@@ -19,4 +19,4 @@ TRIAL_DAYS = 3
 MONTH_MS = 30 * 24 * 60 * 60 * 1000
 PAYMENT_PRICE = 200
 QR_FILE_PATH = "qr.jpg"
-PAYMENT_LINK = "https://finance.ozon.ru/apps/sbp/ozonbankpay/019db3db-f12d-7107-b6ca-a55329933289"
+PAYMENT_LINK =os.getenv("PAYMENT_LINK").rstrip('/')
