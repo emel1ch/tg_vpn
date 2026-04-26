@@ -14,9 +14,10 @@ PANEL_USER = os.getenv("PANEL_USER")
 PANEL_PASSWORD = os.getenv("PANEL_PWD")
 
 # --- НАСТРОЙКИ CORE CONTROL (ADMIN) ---
-REMOTE_GDRIVE = os.getenv("REMOTE_GDRIVE", "gdrive:vpn_gtn")
-MARZBAN_DB_PATH = os.getenv("MARZBAN_DB_PATH", "/opt/marzban/marzban.sqlite")
-MARZBAN_ENV_PATH = os.getenv("MARZBAN_ENV_PATH", "/opt/marzban/.env")
+REMOTE_GDRIVE = os.getenv("REMOTE_GDRIVE") # Оставляем Google Drive
+MARZBAN_DB_PATH = os.getenv("MARZBAN_DB_PATH", "/opt/marzban/data/db.sqlite3")
+# Путь к локальной базе бота (как в migration.py)
+BOT_DB_PATH = os.getenv("BOT_DB_PATH", "vpn_service.db")
 
 # Настройки времени и цен
 INBOUND_ID = 1

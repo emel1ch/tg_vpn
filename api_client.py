@@ -96,19 +96,29 @@ class PanelAPI:
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/users"
         headers = {"Authorization": f"Bearer {self.token}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return []
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    logging.error(f"Ошибка API (users): код {resp.status}")
+                    return None
+        except Exception as e:
+            logging.error(f"Сбой соединения API Marzban (users): {e}")
+            return None
 
     async def get_system_stats(self):
-        """Получает статистику системы (CPU, RAM, Трафик)"""
+        """Получает статистику системы"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/system"
         headers = {"Authorization": f"Bearer {self.token}"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                return {}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    logging.error(f"Ошибка API (system): код {resp.status}")
+                    return None
+        except Exception as e:
+            logging.error(f"Сбой соединения API Marzban (system): {e}")
+            return None
