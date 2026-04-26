@@ -74,6 +74,15 @@ class Database:
             async with db.execute("SELECT pay_date, amount FROM transactions WHERE tg_id = ? ORDER BY id DESC LIMIT ?", (tg_id, limit)) as cursor:
                 return await cursor.fetchall()
 
+    async def get_all_users(self):
+        """Получает список всех пользователей из локальной базы бота"""
+        async with aiosqlite.connect(self.db_file) as db:  # Убедись, что self.path совпадает с переменной твоего класса
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("SELECT tg_id FROM users")
+            rows = await cursor.fetchall()
+            return [row['tg_id'] for row in rows]
+
+
     async def get_tg_id_by_username(self, username):
         clean_username = username.replace("@", "").strip()
         async with aiosqlite.connect(self.db_file) as db:

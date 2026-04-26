@@ -5,7 +5,7 @@ from datetime import datetime
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
-
+import asyncio
 # Импортируем твои настройки
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH
 
@@ -207,3 +207,103 @@ async def cmd_unban(message: types.Message, command: CommandObject):
         await message.reply(f"🕊 IP <code>{ip}</code> разблокирован.", parse_mode="HTML")
     except Exception as e:
         await message.reply(f"❌ Ошибка: {e}")
+
+
+@router.message(Command("sendall"))
+async def cmd_sendall(message: types.Message, command: CommandObject, db, bot: Bot):
+    if message.from_user.id != ADMIN_ID: return
+
+    text = command.args
+    if not text:
+        await message.reply("⚠️ <b>Использование:</b>\n<code>/sendall Внимание! Сегодня скидки!</code>",
+                            parse_mode="HTML")
+        return
+
+    users = await db.get_all_users()
+    if not users:
+        await message.reply("❌ В базе данных пока нет пользователей.")
+        return
+
+    msg = await message.answer(f"⏳ <b>Начинаю рассылку для {len(users)} пользователей...</b>", parse_mode="HTML")
+
+    success = 0
+    failed = 0
+
+    for tg_id in users:
+        try:
+            await bot.send_message(chat_id=tg_id, text=text, parse_mode="HTML")
+            success += 1
+        except Exception as e:
+            # Юзер мог заблокировать бота, игнорируем
+            failed += 1
+
+        # Anti-flood задержка, чтобы Telegram не забанил бота за спам
+        await asyncio.sleep(0.05)
+
+    await msg.edit_text(
+        f"✅ <b>Рассылка завершена!</b>\n\n✉️ Успешно доставлено: {success}\n❌ Заблокировали бота: {failed}",
+        parse_mode="HTML")
+
+
+@router.message(Command("give_sub"))
+async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel, bot: Bot):
+    if message.from_user.id != ADMIN_ID: return
+
+    args = command.args
+    if not args:
+        await message.reply(
+            "⚠️ <b>Формат:</b>\n<code>/give_sub <ID_пользователя> <Дни></code>\nПример: <code>/give_sub 123456789 30</code>",
+            parse_mode="HTML")
+        return
+
+    parts = args.split()
+    if len(parts) != 2:
+        await message.reply("❌ Неверный формат. Укажите ID и количество дней через пробел.")
+        return
+
+    try:
+        target_uid = int(parts[0])
+        days = int(parts[1])
+    except ValueError:
+        await message.reply("❌ ID и количество дней должны быть числами.")
+        return
+
+    add_ms = days * 24 * 60 * 60 * 1000
+
+    try:
+        # Логика расчета времени
+        user = await db.get_user(target_uid)
+        now_ms = int(time.time() * 1000)
+        current_expiry = user['expiry_ms'] if user and user['expiry_ms'] else 0
+        new_expiry = max(current_expiry, now_ms) + add_ms
+
+        # Синхронизация с Marzban (Создаем или продлеваем)
+        # Обрати внимание: INBOUND_ID должно импортироваться из config.py
+        from config import INBOUND_ID
+
+        username = f"User_{target_uid}"
+        # Пробуем продлить (если юзер уже есть в панели)
+        # Если в твоем panel_client метод называется иначе, поправим, но обычно это так:
+        marzban_res = await panel.extend_user(INBOUND_ID, str(target_uid), username, None, new_expiry)
+
+        if not marzban_res or not marzban_res.get("success"):
+            # Если юзера нет в Marzban - создаем
+            await panel.add_user(INBOUND_ID, username, str(target_uid), new_expiry)
+
+        # Обновляем локальную базу
+        await db.confirm_payment(target_uid, 0, new_expiry)  # Сумма 0, так как выдано админом
+
+        await message.reply(
+            f"✅ <b>Готово!</b>\nПодписка для <code>{target_uid}</code> продлена/создана на {days} дней.",
+            parse_mode="HTML")
+
+        # Пробуем обрадовать юзера
+        try:
+            await bot.send_message(target_uid,
+                                   f"🎁 <b>Вам начислена подписка!</b>\nАдминистратор выдал вам доступ на {days} дней.",
+                                   parse_mode="HTML")
+        except Exception:
+            pass  # Если бот заблокирован юзером
+
+    except Exception as e:
+        await message.reply(f"❌ Ошибка выдачи подписки: {e}")
