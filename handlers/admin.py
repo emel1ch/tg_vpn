@@ -63,15 +63,16 @@ async def handle_status(callback: types.CallbackQuery, panel):
 
         status_emoji = "🟢" if docker_status == "running" else "🟡"
 
-        mem_used = stats.get('memory_used', 0) / (1024 ** 3) if isinstance(stats.get('memory_used'),
-                                                                           (int, float)) else 0
-        mem_total = stats.get('memory_total', 1) / (1024 ** 3) if isinstance(stats.get('memory_total'),
-                                                                             (int, float)) else 1
+        # --- ИСПРАВЛЕННЫЕ КЛЮЧИ API MARZBAN ---
+        mem_used = stats.get('mem_used', 0) / (1024 ** 3)
+        mem_total = stats.get('mem_total', 1) / (1024 ** 3)
+        cpu = stats.get('cpu_usage', 0)
+        version = stats.get('xray_version') or stats.get('version', 'Unknown')
 
         report = (f"{status_emoji} <b>Статус Контейнера:</b> {docker_status}\n"
-                  f"🖥 <b>CPU:</b> {stats.get('cpu_percent', 0)}%\n"
+                  f"🖥 <b>CPU:</b> {cpu}%\n"
                   f"💾 <b>RAM:</b> {mem_used:.2f} GB / {mem_total:.2f} GB\n"
-                  f"🌐 <b>Xray Версия:</b> {stats.get('xray_version', 'Unknown')}")
+                  f"🌐 <b>Версия:</b> {version}")
 
         await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
     except Exception as e:
