@@ -90,3 +90,25 @@ class PanelAPI:
 
     async def close(self):
         pass
+
+    async def get_all_users(self):
+        """Получает список всех пользователей из Marzban"""
+        if not self.token: await self._get_token()
+        url = f"{self.base_url}/api/users"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return []
+
+    async def get_system_stats(self):
+        """Получает статистику системы (CPU, RAM, Трафик)"""
+        if not self.token: await self._get_token()
+        url = f"{self.base_url}/api/system"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return {}
