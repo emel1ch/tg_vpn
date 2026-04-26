@@ -75,17 +75,17 @@ class Database:
                 return await cursor.fetchall()
 
     async def get_all_users(self):
-        """Получает список всех пользователей из локальной базы бота"""
-        async with aiosqlite.connect(self.db_file) as db:  # Убедись, что self.path совпадает с переменной твоего класса
+        """Получает список всех TG ID пользователей"""
+        async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute("SELECT tg_id FROM users")
             rows = await cursor.fetchall()
             return [row['tg_id'] for row in rows]
 
-
-    async def get_tg_id_by_username(self, username):
-        clean_username = username.replace("@", "").strip()
-        async with aiosqlite.connect(self.db_file) as db:
-            async with db.execute("SELECT tg_id FROM users WHERE username = ? COLLATE NOCASE", (clean_username,)) as cursor:
-                result = await cursor.fetchone()
-                return result[0] if result else None
+    async def get_user_by_username(self, username: str):
+        """Находит пользователя по юзернейму (без @)"""
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            username = username.replace("@", "").lower()
+            cursor = await db.execute("SELECT * FROM users WHERE LOWER(username) = ?", (username,))
+            return await cursor.fetchone()

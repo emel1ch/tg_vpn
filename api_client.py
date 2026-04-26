@@ -101,14 +101,12 @@ class PanelAPI:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
-                    logging.error(f"Ошибка API (users): код {resp.status}")
                     return None
-        except Exception as e:
-            logging.error(f"Сбой соединения API Marzban (users): {e}")
+        except Exception:
             return None
 
     async def get_system_stats(self):
-        """Получает статистику системы"""
+        """Получает статистику системы (CPU, RAM, Версия)"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/system"
         headers = {"Authorization": f"Bearer {self.token}"}
@@ -117,8 +115,6 @@ class PanelAPI:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
-                    logging.error(f"Ошибка API (system): код {resp.status}")
                     return None
-        except Exception as e:
-            logging.error(f"Сбой соединения API Marzban (system): {e}")
+        except Exception:
             return None
