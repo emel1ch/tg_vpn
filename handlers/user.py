@@ -77,7 +77,7 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
         welcome_text = (
             f"👋 <b>Добро пожаловать!</b>\n\n"
             f"🎁 Мы начислили вам <b>{TRIAL_DAYS} дня бесплатного доступа</b>!\n"
-            f"Нажмите «📊 Статус», чтобы получить вашу ссылку-подписку.\n\n"
+            f"Нажмите «📊 Статус(Подписка)», чтобы получить вашу ссылку-подписку.\n\n"
             f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
             f"🆔 Ваш ID: <code>{uid}</code>"
         )
