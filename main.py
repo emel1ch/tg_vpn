@@ -21,7 +21,7 @@ async def main():
     dp.include_router(admin.router)
     asyncio.create_task(check_expiring_subs(bot, db))
     await db.create_tables()
-    print("🚀 Бот Aura VPN запущен!")
+    print("🚀 Бот GTN VPN запущен!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 

@@ -78,13 +78,13 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
             f"👋 <b>Добро пожаловать!</b>\n\n"
             f"🎁 Мы начислили вам <b>{TRIAL_DAYS} дня бесплатного доступа</b>!\n"
             f"Нажмите «📊 Статус», чтобы получить вашу ссылку-подписку.\n\n"
-            f"🚀 <b>Управление VPN подпиской Aura VPN</b>\n"
+            f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
             f"🆔 Ваш ID: <code>{uid}</code>"
         )
     else:
         # СТАРЫЙ ПОЛЬЗОВАТЕЛЬ
         welcome_text = (
-            f"🚀 <b>Управление VPN подпиской Aura VPN</b>\n"
+            f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
             f"🆔 Ваш ID: <code>{uid}</code>"
         )
 
@@ -187,7 +187,7 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     uid = callback.from_user.id
     text = (
-        f"🚀 <b>Управление VPN подпиской Aura VPN</b>\n"
+        f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
         f"🆔 Ваш ID: <code>{uid}</code>"
     )
     kb = get_main_menu()
