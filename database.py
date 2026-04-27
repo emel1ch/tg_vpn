@@ -84,7 +84,11 @@ class Database:
 
     async def get_transactions(self, tg_id, limit=5):
         async with aiosqlite.connect(self.db_file) as db:
-            async with db.execute("SELECT pay_date, amount FROM transactions WHERE tg_id = ? ORDER BY id DESC LIMIT ?", (tg_id, limit)) as cursor:
+            # ВОТ ЭТА СТРОКА РЕШАЕТ ПРОБЛЕМУ:
+            db.row_factory = aiosqlite.Row
+
+            async with db.execute("SELECT pay_date, amount FROM transactions WHERE tg_id = ? ORDER BY id DESC LIMIT ?",
+                                  (tg_id, limit)) as cursor:
                 return await cursor.fetchall()
 
     async def get_all_users(self):
