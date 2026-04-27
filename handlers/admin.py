@@ -1,17 +1,13 @@
 import os
 import subprocess
-import logging
-import time  # ✅ ДОБАВЛЕНО: фикс ошибки "name 'time' is not defined"
 import asyncio
-from datetime import datetime
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, BufferedInputFile
 from aiogram.exceptions import TelegramForbiddenError
 import openpyxl
 from openpyxl.styles import Font
 from io import BytesIO
-# Убедись, что INBOUND_ID есть в твоем config.py
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
 
 router = Router()
