@@ -401,3 +401,86 @@ async def reply_from_admin(message: types.Message, bot: Bot):
 
         except Exception as e:
             await message.reply(f"❌ Ошибка отправки: Пользователь заблокировал бота или удален.")
+
+
+import time
+from aiogram.exceptions import TelegramBadRequest
+
+
+# ==========================================
+# ОБРАБОТКА ОПЛАТЫ ИЗ АДМИН-ГРУППЫ
+# ==========================================
+@router.callback_query(F.data.startswith("pay_yes:"))
+async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
+    await callback.answer("⏳ Одобряю...", show_alert=False)
+
+    # Достаем ID пользователя из callback_data (pay_yes:12345678)
+    user_id = int(callback.data.split(":")[1])
+
+    # ВАШИ НАСТРОЙКИ (200 руб = 30 дней)
+    from config import PAYMENT_PRICE
+    add_ms = 30 * 24 * 60 * 60 * 1000  # 30 дней в миллисекундах
+
+    try:
+        user = await db.get_user(user_id)
+        now_ms = int(time.time() * 1000)
+        current_expiry = user['expiry_ms'] if user and user['expiry_ms'] else 0
+        new_expiry = max(current_expiry, now_ms) + add_ms
+
+        username_panel = str(user_id)
+        from config import INBOUND_ID
+
+        # Обновляем Marzban
+        marzban_res = await panel.extend_user(INBOUND_ID, username_panel, None, None, new_expiry)
+        if not marzban_res or not marzban_res.get("success"):
+            await panel.add_user(INBOUND_ID, None, str(user_id), new_expiry)
+
+        # Записываем транзакцию в БД
+        await db.confirm_payment(user_id, PAYMENT_PRICE, new_expiry)
+
+        # Обновляем сообщение в админ-чате
+        try:
+            await callback.message.edit_caption(
+                caption=callback.message.caption + "\n\n✅ <b>ОДОБРЕНО</b>",
+                parse_mode="HTML"
+            )
+        except TelegramBadRequest:
+            pass  # Если не получилось изменить текст, игнорируем
+
+        # Уведомляем юзера
+        try:
+            await bot.send_message(
+                user_id,
+                "🎉 <b>Ваша оплата успешно подтверждена!</b>\nПодписка продлена на 30 дней. Проверьте /menu",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    except Exception as e:
+        await callback.message.reply(f"❌ Ошибка при выдаче подписки: {e}")
+
+
+@router.callback_query(F.data.startswith("pay_no:"))
+async def reject_payment(callback: types.CallbackQuery, bot: Bot):
+    await callback.answer("Отклонено", show_alert=False)
+    user_id = int(callback.data.split(":")[1])
+
+    # Обновляем сообщение в админ-чате
+    try:
+        await callback.message.edit_caption(
+            caption=callback.message.caption + "\n\n❌ <b>ОТКЛОНЕНО</b>",
+            parse_mode="HTML"
+        )
+    except TelegramBadRequest:
+        pass
+
+    # Уведомляем юзера
+    try:
+        await bot.send_message(
+            user_id,
+            "❌ <b>Ваша оплата не была подтверждена.</b>\nЕсли вы уверены, что оплатили, обратитесь в Поддержку через меню бота.",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
