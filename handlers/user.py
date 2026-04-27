@@ -31,7 +31,14 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
 
         await db.add_user(uid, message.from_user.username, message.from_user.full_name, expiry_ms=expiry_ms,
                           is_active=1)
-        await panel.add_user(INBOUND_ID, None, str(uid), expiry_ms)
+        # Создаем в Marzban и ловим ответ
+        panel_res = await panel.add_user(INBOUND_ID, None, str(uid), expiry_ms)
+
+        # Если успешно создалось, сразу сохраняем ссылку в БД бота
+        if panel_res and panel_res.get("success"):
+            sub_url = panel_res.get("subscription_url", "")
+            if sub_url:
+                await db.set_user_keys(uid, str(uid), sub_url)
 
         # --- ЛОГИКА РЕФЕРАЛОВ ---
         if args and args.startswith("ref"):
