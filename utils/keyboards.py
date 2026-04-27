@@ -8,7 +8,7 @@ def get_main_menu():
     builder.row(InlineKeyboardButton(text="💳 Оплата", callback_data="renew"))
     builder.row(
         InlineKeyboardButton(text="📚 Инструкции", callback_data="guides"),
-        InlineKeyboardButton(text="📊 Статус(Подписка)", callback_data="status")
+        InlineKeyboardButton(text="📊 Статус (Подписка)", callback_data="status")
     )
     builder.row(
         InlineKeyboardButton(text="📜 Транзакции", callback_data="history"),
