@@ -1,5 +1,6 @@
 import aiosqlite
 from datetime import datetime
+import time
 
 class Database:
     def __init__(self, db_file):
@@ -126,3 +127,14 @@ class Database:
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute("UPDATE users SET referrer_id = ? WHERE tg_id = ?", (referrer_id, tg_id))
             await db.commit()
+
+    async def get_active_subscriptions(self):
+        """Получает пользователей, у которых реальное время подписки еще не вышло"""
+        # Берем текущее время в миллисекундах (т.к. у тебя expiry_ms)
+        current_time_ms = int(time.time() * 1000)
+
+        async with aiosqlite.connect(self.db_file) as db:
+            db.row_factory = aiosqlite.Row
+            # Ищем тех, у кого дата истечения больше текущей
+            async with db.execute("SELECT * FROM users WHERE expiry_ms > ?", (current_time_ms,)) as cursor:
+                return await cursor.fetchall()

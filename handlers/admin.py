@@ -8,7 +8,9 @@ from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.exceptions import TelegramForbiddenError
-
+import openpyxl
+from openpyxl.styles import Font
+from io import BytesIO
 # Убедись, что INBOUND_ID есть в твоем config.py
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
 
@@ -484,3 +486,79 @@ async def reject_payment(callback: types.CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
+@router.message(Command("export"))
+async def export_excel_command(message: types.Message, db):
+    # Защита: чтобы команду мог вызвать только админ
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    # Получаем 100% активные подписки
+    users = await db.get_active_subscriptions()
+
+    if not users:
+        await message.answer("На данный момент нет пользователей с активной подпиской.")
+        return
+
+    # Создаем виртуальный Excel файл
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Активные подписки"
+
+    # Создаем заголовки
+    headers = [
+        "TG ID", "Юзернейм", "Имя", "Ссылка на чат",
+        "Срок окончания", "Оплачено (Сумма)", "Рефералов", "Sub ID"
+    ]
+    ws.append(headers)
+
+    # Делаем заголовки жирными
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    # Заполняем таблицу данными пользователей
+    for u in users:
+        # Переводим миллисекунды в красивую человеческую дату
+        if u['expiry_ms']:
+            expiry_dt = datetime.fromtimestamp(u['expiry_ms'] / 1000).strftime('%d.%m.%Y %H:%M')
+        else:
+            expiry_dt = "Ошибка/Безлимит"
+
+        row = [
+            u['tg_id'],
+            f"@{u['username']}" if u['username'] else "Нет юзернейма",
+            u['full_name'],
+            u['contact_link'],
+            expiry_dt,
+            u['total_paid'],
+            u['referrals_count'] if 'referrals_count' in u.keys() else 0, # На случай если рефералов нет
+            u['sub_id']
+        ]
+        ws.append(row)
+
+    # Красиво растягиваем колонки по ширине текста
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        ws.column_dimensions[column].width = max_length + 2
+
+    # Сохраняем Excel в оперативную память
+    file_bytes = BytesIO()
+    wb.save(file_bytes)
+    file_bytes.seek(0)
+
+    # Формируем документ для отправки в Telegram
+    date_str = datetime.now().strftime('%d_%m_%Y')
+    document = BufferedInputFile(file_bytes.read(), filename=f"Active_Subs_{date_str}.xlsx")
+
+    # Отправляем админу
+    await message.answer_document(
+        document,
+        caption=f"📥 <b>Выгрузка завершена!</b>\n\nАктивных пользователей: <b>{len(users)} чел.</b>",
+        parse_mode="HTML"
+    )
