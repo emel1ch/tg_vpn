@@ -26,3 +26,25 @@ MONTH_MS = 30 * 24 * 60 * 60 * 1000
 PAYMENT_PRICE = 200
 QR_FILE_PATH = "qr.jpg"
 PAYMENT_LINK =os.getenv("PAYMENT_LINK").rstrip('/')
+# --- КРИПТО КОШЕЛЬКИ (из .env) ---
+CRYPTO_WALLETS = {
+    "TON": os.getenv("WALLET_TON", "Кошелек не настроен"),
+    "ETH": os.getenv("WALLET_ETH", "Кошелек не настроен"),
+    "BTC": os.getenv("WALLET_BTC", "Кошелек не настроен"),
+    "USDT_TRC20": os.getenv("WALLET_USDT_TRC20", "Кошелек не настроен"),
+    "USDT_ERC20": os.getenv("WALLET_USDT_ERC20", "Кошелек не настроен"),
+    "USDT_TON": os.getenv("WALLET_USDT_TON", "Кошелек не настроен"),
+    "USDT_SOL": os.getenv("WALLET_USDT_SOL", "Кошелек не настроен"),
+}
+
+# --- ПУТИ К КАРТИНКАМ QR КОДОВ ---
+# Назовите ваши картинки именно так и положите в папку с ботом
+CRYPTO_QRS = {
+    "TON": "qr_ton.jpg",
+    "ETH": "qr_eth.jpg",
+    "BTC": "qr_btc.jpg",
+    "USDT_TRC20": "qr_usdt_trc20.jpg",
+    "USDT_ERC20": "qr_usdt_erc20.jpg",
+    "USDT_TON": "qr_usdt_ton.jpg",
+    "USDT_SOL": "qr_usdt_sol.jpg",
+}

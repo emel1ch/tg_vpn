@@ -7,9 +7,10 @@ from datetime import datetime
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+from aiogram.exceptions import TelegramForbiddenError
 
 # Убедись, что INBOUND_ID есть в твоем config.py
-from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID
+from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
 
 router = Router()
 
@@ -22,16 +23,19 @@ async def resolve_target_id(identifier: str, db):
     Принимает строку (ID или @username).
     Возвращает int (ID) или None, если не нашел.
     """
+    # Если передали чистое число (ID)
     if identifier.isdigit():
         return int(identifier)
 
-    # Ищем по юзернейму (требует метод get_user_by_username в database.py)
-    username = identifier.replace("@", "")
-    user = await db.get_user_by_username(username)
+    # Очищаем юзернейм от @, пробелов и приводим к нижнему регистру
+    clean_username = identifier.replace("@", "").strip().lower()
+
+    # Ищем пользователя в базе (get_user_by_username тоже должен приводить к lower())
+    user = await db.get_user_by_username(clean_username)
     if user:
         return user['tg_id']
-    return None
 
+    return None
 
 # ==========================================
 # 1. АДМИН-ПАНЕЛЬ (CORE CONTROL)
@@ -47,6 +51,7 @@ def get_admin_kb():
 
 @router.message(Command("admin"))
 async def cmd_admin(message: types.Message):
+
     if message.from_user.id != ADMIN_ID: return
     uptime = subprocess.run(['uptime', '-p'], capture_output=True, text=True).stdout.strip()
     await message.answer(f"💻 <b>CORE_CONTROL (Marzban)</b>\nUptime: {uptime}\n<i>Выберите действие:</i>",
@@ -219,25 +224,31 @@ async def cmd_sendall(message: types.Message, command: CommandObject, db, bot: B
     if not users: return await message.reply("❌ В базе данных пока нет пользователей.")
     msg = await message.answer(f"⏳ <b>Начинаю рассылку для {len(users)} пользователей...</b>", parse_mode="HTML")
 
-    success, failed = 0, 0
+    success, blocked, failed = 0, 0, 0
     for tg_id in users:
         try:
             await bot.send_message(chat_id=tg_id, text=command.args, parse_mode="HTML")
             success += 1
+        except TelegramForbiddenError:
+            blocked += 1
+            await db.set_user_inactive(tg_id) # Сразу помечаем юзера как неактивного
         except Exception:
             failed += 1
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.05) # Безопасная пауза от спам-блока
 
-    await msg.edit_text(f"✅ <b>Рассылка завершена!</b>\n✉️ Успешно: {success}\n❌ Заблокировали: {failed}",
-                        parse_mode="HTML")
-
+    await msg.edit_text(
+        f"✅ <b>Рассылка завершена!</b>\n\n"
+        f"✉️ Доставлено: {success}\n"
+        f"🚫 Заблокировали бота: {blocked}\n"
+        f"❌ Ошибок: {failed}",
+        parse_mode="HTML"
+    )
 
 @router.message(Command("give_sub"))
 async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel, bot: Bot):
     if message.from_user.id != ADMIN_ID: return
     if not command.args:
-        return await message.reply("⚠️ <b>Формат:</b>\n<code>/give_sub <ID или @username> <Дни></code>",
-                                   parse_mode="HTML")
+        return await message.reply("⚠️ <b>Формат:</b>\n<code>/give_sub <ID или @username> <Дни></code>", parse_mode="HTML")
 
     parts = command.args.split()
     if len(parts) != 2: return await message.reply("❌ Неверный формат.")
@@ -248,7 +259,7 @@ async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel
     except ValueError:
         return await message.reply("❌ Количество дней должно быть числом.")
 
-    # Используем функцию поиска (убедись, что resolve_target_id есть в начале файла)
+    # Используем функцию поиска ID
     target_uid = await resolve_target_id(target_input, db)
     if not target_uid:
         return await message.reply(f"❌ Пользователь <code>{target_input}</code> не найден в БД.", parse_mode="HTML")
@@ -261,23 +272,132 @@ async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel
         current_expiry = user['expiry_ms'] if user and user['expiry_ms'] else 0
         new_expiry = max(current_expiry, now_ms) + add_ms
 
-        username_panel = f"User_{target_uid}"
-        marzban_res = await panel.extend_user(INBOUND_ID, str(target_uid), username_panel, None, new_expiry)
+        username_panel = str(target_uid) # Marzban использует ID как логин
 
+        # Пробуем продлить
+        marzban_res = await panel.extend_user(INBOUND_ID, username_panel, None, None, new_expiry)
+
+        # Если юзера нет в панели, создаем
         if not marzban_res or not marzban_res.get("success"):
-            await panel.add_user(INBOUND_ID, username_panel, str(target_uid), new_expiry)
+            await panel.add_user(INBOUND_ID, None, str(target_uid), new_expiry)
 
         await db.confirm_payment(target_uid, 0, new_expiry)
+        await message.reply(f"✅ Подписка выдана для <code>{target_input}</code> (ID: {target_uid}) на {days} дн.", parse_mode="HTML")
 
-        await message.reply(f"✅ Подписка выдана для <code>{target_input}</code> (ID: {target_uid}) на {days} дн.",
-                            parse_mode="HTML")
-
+        # Отправляем уведомление самому пользователю
         try:
-            await bot.send_message(target_uid,
-                                   f"🎁 <b>Вам начислена подписка!</b>\nАдминистратор выдал вам доступ на {days} дней.",
-                                   parse_mode="HTML")
+            await bot.send_message(
+                target_uid,
+                f"🎁 <b>Вам начислена подписка!</b>\nАдминистратор выдал вам доступ на {days} дней. Проверьте /menu",
+                parse_mode="HTML"
+            )
         except Exception:
-            pass
+            pass # Если заблокировал бота, просто игнорируем
 
     except Exception as e:
         await message.reply(f"❌ Ошибка выдачи подписки: {e}")
+
+
+from datetime import datetime
+
+
+@router.message(Command("promo_may2"))
+async def cmd_promo_may2(message: types.Message, db, panel, bot: Bot):
+    if message.from_user.id != ADMIN_ID: return
+
+    # Задаем жесткую дату: 2 мая 2026 года, 23:59:59
+    target_date = datetime(2026, 5, 2, 23, 59, 59)
+    target_ms = int(target_date.timestamp() * 1000)
+
+    users = await db.get_all_users()
+    if not users:
+        return await message.reply("❌ База пуста.")
+
+    msg = await message.answer(
+        f"⏳ <b>Начинаю обновление...</b>\nСтавлю всем срок до 2 мая. Юзеров в базе: {len(users)}", parse_mode="HTML")
+
+    success = 0
+    for tg_id in users:
+        try:
+            # 1. Обновляем в локальной базе бота (amount=0, чтобы не портить стату)
+            await db.confirm_payment(tg_id, 0, target_ms)
+
+            username_panel = str(tg_id)
+
+            # 2. Пробуем обновить время в Marzban
+            marzban_res = await panel.extend_user(INBOUND_ID, username_panel, None, None, target_ms)
+
+            # Если юзера нет в Marzban (вдруг удалился), создаем заново с нужным сроком
+            if not marzban_res or not marzban_res.get("success"):
+                await panel.add_user(INBOUND_ID, None, str(tg_id), target_ms)
+
+            success += 1
+        except Exception as e:
+            print(f"Ошибка с юзером {tg_id}: {e}")
+
+        await asyncio.sleep(0.05)  # Защита от лимитов API
+
+    await msg.edit_text(
+        f"✅ <b>Готово!</b>\nСрок подписки для {success} пользователей успешно установлен ровно до 2 мая 2026 года.",
+        parse_mode="HTML")
+
+
+@router.message(Command("revoke_sub"))
+async def cmd_revoke_sub(message: types.Message, command: CommandObject, db, panel):
+    if message.from_user.id != ADMIN_ID: return
+    if not command.args:
+        return await message.reply(
+            "⚠️ <b>Формат:</b>\n<code>/revoke_sub <ID или @username></code>\nЭта команда обнулит время юзера и отключит ему VPN.",
+            parse_mode="HTML")
+
+    target_input = command.args.strip()
+    target_uid = await resolve_target_id(target_input, db)
+
+    if not target_uid:
+        return await message.reply(f"❌ Пользователь <code>{target_input}</code> не найден в БД.", parse_mode="HTML")
+
+    try:
+        # Ставим время = 0
+        await db.confirm_payment(target_uid, 0, 0)
+        # Обновляем в Marzban (передаем 0, чтобы подписка истекла моментально)
+        await panel.extend_user(INBOUND_ID, str(target_uid), None, None, 0)
+
+        await message.reply(
+            f"🛑 Подписка пользователя <code>{target_input}</code> (ID: {target_uid}) успешно аннулирована. VPN отключен.",
+            parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка: {e}")
+
+
+import re  # Убедитесь, что импорт re есть в начале файла
+
+
+@router.message(F.chat.id == GROUP_ID, F.reply_to_message)
+async def reply_from_admin(message: types.Message, bot: Bot):
+    # Берем текст оригинального сообщения, на которое отвечает админ
+    original_text = message.reply_to_message.text or message.reply_to_message.caption
+
+    if not original_text:
+        return  # Если оригинальное сообщение было стикером или войсом без подписи
+
+    # Ищем в тексте строку "ID: 12345678"
+    match = re.search(r"ID:\s*(\d+)", original_text)
+
+    if match:
+        user_id = int(match.group(1))
+
+        # Формируем ответ для пользователя
+        admin_response = (
+            f"👨‍💻 <b>Ответ от поддержки:</b>\n\n"
+            f"{message.text}"
+        )
+
+        try:
+            # Отправляем ответ юзеру
+            await bot.send_message(user_id, admin_response, parse_mode="HTML")
+
+            # Ставим реакцию в админ-группе, чтобы админ понял, что ответ ушел (опционально)
+            await message.react([types.ReactionTypeEmoji(emoji="👍")])
+
+        except Exception as e:
+            await message.reply(f"❌ Ошибка отправки: Пользователь заблокировал бота или удален.")

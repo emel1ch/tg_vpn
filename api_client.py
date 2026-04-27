@@ -34,36 +34,20 @@ class PanelAPI:
         headers = {"Authorization": f"Bearer {self.token}"}
         expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
 
-        async def add_user(self, inbound_id, user_email, user_uuid, expiry_ms):
-            if not self.token: await self._get_token()
-
-            url = f"{self.base_url}/api/user"
-            headers = {"Authorization": f"Bearer {self.token}"}
-            expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
-
-            # Хотфикс: явно указываем прокси и инбаунд
-            payload = {
-                "username": str(user_uuid),
-                "proxies": {"vless": {}},
-                "inbounds": {"vless": ["VLESS_TCP_TLS"]},  # Имя должно точно совпадать с панелью
-                "expire": expiry_s,
-                "data_limit": 0
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        return {"success": True, "subscription_url": data.get('subscription_url', '')}
-                    elif resp.status == 409:
-                        return {"success": True}
-                    return {"success": False}
+        # Явно указываем прокси и инбаунд
+        payload = {
+            "username": str(user_uuid),
+            "proxies": {"vless": {}},
+            "inbounds": {"vless": ["VLESS_TCP_TLS"]},  # Имя должно точно совпадать с панелью
+            "expire": expiry_s,
+            "data_limit": 0
+        }
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Возвращаем ссылку
+                    # Возвращаем универсальную ссылку
                     return {"success": True, "subscription_url": data.get('subscription_url', '')}
                 elif resp.status == 409:  # Если уже есть
                     return {"success": True}
@@ -81,12 +65,26 @@ class PanelAPI:
                 return None
 
     async def extend_user(self, inbound_id, user_uuid, user_email, sub_id, new_expiry_ms):
+        """Жестко устанавливает новую дату истечения подписки в Marzban"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/user/{user_uuid}"
         headers = {"Authorization": f"Bearer {self.token}"}
+
+        # Переводим миллисекунды в секунды
+        expiry_s = int(new_expiry_ms / 1000) if new_expiry_ms > 0 else 0
+
+        # Формируем тело запроса (жестко ставим expire)
+        payload = {
+            "expire": expiry_s
+        }
+
         async with aiohttp.ClientSession() as session:
-            async with session.put(url, json={"expire": int(new_expiry_ms / 1000)}, headers=headers) as resp:
-                return {"success": resp.status == 200}
+            # Делаем PUT запрос для обновления юзера
+            async with session.put(url, json=payload, headers=headers) as resp:
+                if resp.status == 200:
+                    return {"success": True}
+                else:
+                    return {"success": False, "error": await resp.text()}
 
     async def close(self):
         pass
