@@ -22,12 +22,12 @@ def get_main_menu():
 def get_guides_kb():
     builder = InlineKeyboardBuilder()
     # Твои актуальные ссылки из main.py
-    builder.row(InlineKeyboardButton(text="🍏 iOS/iPad/TV", url="https://teletype.in/@emel1ch/eJMUeXbv9P3"))
-    builder.row(InlineKeyboardButton(text="🤖 Android", url="https://teletype.in/@emel1ch/YVYFWWL3pcJ"))
-    builder.row(InlineKeyboardButton(text="💻 Windows", url="https://teletype.in/@emel1ch/1oshgSSJjal"))
-    builder.row(InlineKeyboardButton(text="💻 MacOS", url="https://teletype.in/@emel1ch/I6p31Dxnwhq"))
-    builder.row(InlineKeyboardButton(text="💻 Linux", url="https://teletype.in/@emel1ch/DrBPJnR4dnT"))
-    builder.row(InlineKeyboardButton(text="📺 AndroidTV", url="https://teletype.in/@emel1ch/nUHewpzq5B3"))
+    builder.row(InlineKeyboardButton(text="🍏 iOS/iPad/TV", url="https://teletype.in/@vpn_gtn/eJMUeXbv9P3"))
+    builder.row(InlineKeyboardButton(text="🤖 Android", url="https://teletype.in/@vpn_gtn/YVYFWWL3pcJ"))
+    builder.row(InlineKeyboardButton(text="💻 Windows", url="https://teletype.in/@vpn_gtn/1oshgSSJjal"))
+    builder.row(InlineKeyboardButton(text="💻 MacOS", url="https://teletype.in/@vpn_gtn/I6p31Dxnwhq"))
+    builder.row(InlineKeyboardButton(text="💻 Linux", url="https://teletype.in/@vpn_gtn/DrBPJnR4dnT"))
+    builder.row(InlineKeyboardButton(text="📺 AndroidTV", url="https://teletype.in/@vpn_gtn/nUHewpzq5B3"))
     builder.row(InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="to_main"))
     builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
