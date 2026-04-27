@@ -124,16 +124,16 @@ async def show_status(callback: types.CallbackQuery, db, panel):
             from config import PANEL_URL
             sub_url = f"{PANEL_URL.rstrip('/')}{sub_url}"
 
-        # --- ОБНОВЛЕННЫЙ БЛОК ВЫДАЧИ ПОДПИСКИ ---
         text += (
-            "🍏 <b>Для iPhone / iPad (приложение Happ):</b>\n"
-            "<i>Умная настройка: РФ сайты без VPN, остальное через туннель.</i>\n"
-            f"1️⃣ <a href='{HAPP_ROUTING_LINK}'>Нажми сюда</a> <i>(откроется Happ, профиль добавится сам)</i>\n"
-            f"2️⃣ Скопируй ссылку ниже, нажми «+» в Happ и выбери «Import from Clipboard»:\n\n"
-            f"<code>{sub_url}</code>\n\n"
-            "🤖💻 <b>Для других устройств (Android, PC, Mac):</b>\n"
-            f"Просто скопируйте вашу ссылку-подписку:\n"
-            f"<code>{sub_url}</code>"
+            "➖ ➖ ➖ ➖ ➖ ➖ ➖\n\n"
+            "🍏 <b>Приложение Happ</b>\n"
+            "<i>Умный обход: РФ-сайты напрямую, остальное через VPN</i>\n\n"
+            f"<b>Шаг 1:</b> <a href='{HAPP_ROUTING_LINK}'>⚙️ Настроить маршрутизацию</a>\n"
+            "<i>(Нажми на текст 👆, откроется Happ, профиль добавится сам)</i>\n\n"
+            "<b>Шаг 2:</b> Скопируй твою подписку (нажми на ссылку 👇):\n"
+            f"<code>{sub_url}</code>\n"
+            "<i>Затем вставь её в Happ: кнопка «+» ➔ Import from Clipboard</i>\n\n"
+            "➖ ➖ ➖ ➖ ➖ ➖ ➖\n\n"
         )
     else:
         text += "⚠️ Ссылка временно недоступна."

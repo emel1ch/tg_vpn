@@ -14,6 +14,7 @@ DB_NAME = os.getenv("DB_NAME")
 PANEL_URL = os.getenv("PANEL_URL").rstrip('/')
 PANEL_USER = os.getenv("PANEL_USER")
 PANEL_PASSWORD = os.getenv("PANEL_PWD")
+HAPP_ROUTING_LINK =os.getenv("HAPP_ROUTING_LINK").rstrip('/')
 
 # --- НАСТРОЙКИ CORE CONTROL (ADMIN) ---
 REMOTE_GDRIVE = os.getenv("REMOTE_GDRIVE") # Оставляем Google Drive
@@ -50,35 +51,3 @@ CRYPTO_QRS = {
     "USDT_TON": "qr_usdt_ton.jpg",
     "USDT_SOL": "qr_usdt_sol.jpg",
 }
-
-# --- НАСТРОЙКИ МАРШРУТИЗАЦИИ ДЛЯ HAPP (iOS) ---
-HAPP_ROUTING_DICT = {
-    "Name": "Smart-RU-Direct",
-    "GlobalProxy": "true",
-    "RemoteDNSType": "DoH",
-    "RemoteDNSDomain": "https://cloudflare-dns.com/dns-query",
-    "RemoteDNSIP": "1.1.1.1",
-    "DomesticDNSType": "DoU",
-    "DomesticDNSIP": "8.8.8.8",
-    "DomainStrategy": "IPIfNonMatch",
-    "FakeDNS": "true", # Автоматически включает Sniffing
-    "DirectSites": [
-        "geosite:ru",
-        "geosite:yandex",
-        "geosite:mailru",
-        "geosite:vk",
-        "domain:ru",
-        "domain:su",
-        "domain:рф"
-    ],
-    "DirectIp": [
-        "geoip:ru",
-        "geoip:private"
-    ]
-}
-
-# Автоматически генерируем ссылку при запуске бота
-_routing_json_str = json.dumps(HAPP_ROUTING_DICT, separators=(',', ':'))
-_routing_b64 = base64.b64encode(_routing_json_str.encode('utf-8')).decode('utf-8')
-
-HAPP_ROUTING_LINK = f"happ://routing/onadd/{_routing_b64}"
