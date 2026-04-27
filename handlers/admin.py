@@ -206,6 +206,9 @@ async def cmd_unban(message: types.Message, command: CommandObject):
 # ==========================================
 # 3. РАССЫЛКА И ВЫДАЧА ПОДПИСОК
 # ==========================================
+# ==========================================
+# 3. РАССЫЛКА И ВЫДАЧА ПОДПИСОК
+# ==========================================
 @router.message(Command("sendall"))
 async def cmd_sendall(message: types.Message, command: CommandObject, db, bot: Bot):
     if message.from_user.id != ADMIN_ID: return
@@ -245,7 +248,7 @@ async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel
     except ValueError:
         return await message.reply("❌ Количество дней должно быть числом.")
 
-    # ✅ ИСПОЛЬЗУЕМ ФУНКЦИЮ ПОИСКА ПО ЮЗЕРНЕЙМУ
+    # Используем функцию поиска (убедись, что resolve_target_id есть в начале файла)
     target_uid = await resolve_target_id(target_input, db)
     if not target_uid:
         return await message.reply(f"❌ Пользователь <code>{target_input}</code> не найден в БД.", parse_mode="HTML")
@@ -254,7 +257,7 @@ async def cmd_give_sub(message: types.Message, command: CommandObject, db, panel
 
     try:
         user = await db.get_user(target_uid)
-        now_ms = int(time.time() * 1000)  # ✅ ТЕПЕРЬ РАБОТАЕТ БЛАГОДАРЯ IMPORT TIME
+        now_ms = int(time.time() * 1000)
         current_expiry = user['expiry_ms'] if user and user['expiry_ms'] else 0
         new_expiry = max(current_expiry, now_ms) + add_ms
 
