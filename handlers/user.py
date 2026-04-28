@@ -3,10 +3,9 @@ from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardRemove
 from datetime import datetime
-from utils.keyboards import get_main_menu, get_guides_kb, get_back_kb
-from config import GROUP_ID, ADMIN_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
+from utils.keyboards import get_main_menu, get_back_kb
+from config import GROUP_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
 
 
 router = Router()
@@ -271,3 +270,5 @@ async def show_referral_menu(callback: types.CallbackQuery, db, bot: Bot):
         pass
 
     await callback.message.answer(text, reply_markup=get_back_kb(), parse_mode="HTML")
+
+

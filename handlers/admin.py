@@ -632,3 +632,40 @@ async def cmd_sync_users(message: types.Message, db, panel):
         f"⏭ Пропущено не-TG аккаунтов: <b>{skipped_count}</b>",
         parse_mode="HTML"
     )
+@router.message(Command("set_sub"))
+async def cmd_set_sub(message: types.Message, command: CommandObject, db, panel):
+    if message.from_user.id != ADMIN_ID: return
+    if not command.args:
+        return await message.reply("⚠️ <b>Формат:</b>\n<code>/set_sub <ID или @username> <Дни></code>\n"
+                                   "<i>Установит срок ровно на указанное число дней от текущего момента.</i>",
+                                   parse_mode="HTML")
+
+    parts = command.args.split()
+    if len(parts) != 2: return await message.reply("❌ Неверный формат.")
+
+    target_input = parts[0]
+    try:
+        days = int(parts[1])
+    except ValueError:
+        return await message.reply("❌ Количество дней должно быть числом.")
+
+    target_uid = await resolve_target_id(target_input, db)
+    if not target_uid:
+        return await message.reply(f"❌ Пользователь <code>{target_input}</code> не найден.", parse_mode="HTML")
+
+    try:
+        # Считаем время строго от "сейчас"
+        now_ms = int(time.time() * 1000)
+        new_expiry = now_ms + (days * 24 * 60 * 60 * 1000)
+
+        # 1. Обновляем в локальной БД (ставим 0 в оплату, чтобы не портить статистику доходов)
+        await db.confirm_payment(target_uid, 0, new_expiry)
+
+        # 2. Обновляем в Marzban
+        await panel.extend_user(INBOUND_ID, str(target_uid), None, None, new_expiry)
+
+        await message.reply(
+            f"🔧 <b>Срок исправлен!</b>\nДля <code>{target_input}</code> установлено ровно <b>{days}</b> дн. подписки.",
+            parse_mode="HTML")
+    except Exception as e:
+        await message.reply(f"❌ Ошибка при исправлении: {e}")
