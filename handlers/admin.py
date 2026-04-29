@@ -304,7 +304,7 @@ async def cmd_promo_may2(message: types.Message, db, panel, bot: Bot):
     if message.from_user.id != ADMIN_ID: return
 
     # Задаем жесткую дату: 2 мая 2026 года, 23:59:59
-    target_date = datetime(2026, 5, 2, 23, 59, 59)
+    target_date = datetime(2026, 5, 3, 23, 59, 59)
     target_ms = int(target_date.timestamp() * 1000)
 
     users = await db.get_all_users()
