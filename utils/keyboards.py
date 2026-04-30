@@ -19,7 +19,7 @@ def get_main_menu(has_used_trial=True):  # Добавили аргумент
         InlineKeyboardButton(text="📜 Транзакции", callback_data="history"),
         InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")
     )
-    builder.row(InlineKeyboardButton(text="🎁 Пригласить друга (Бонус)", callback_data="referral_menu"))
+    builder.row(InlineKeyboardButton(text="💌 Пригласить друга (Бонус)", callback_data="referral_menu"))
     # Новая кнопка канала
     builder.row(InlineKeyboardButton(text="📢 Наш Канал", url=CHANNEL_URL))
 
