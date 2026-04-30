@@ -32,6 +32,19 @@ class Database:
 
             # --- МИГРАЦИЯ ДЛЯ РЕФЕРАЛОВ ---
             # Пытаемся добавить колонки. Если они уже есть, SQLite выдаст ошибку, которую мы игнорируем.
+            new_columns = [
+                "has_used_trial BOOLEAN DEFAULT 0",
+                "reg_time_ms INTEGER DEFAULT 0",
+                "reminder_stage INTEGER DEFAULT 0",
+                "lapsed_reminder_stage INTEGER DEFAULT 0",
+                "ref_limit INTEGER DEFAULT 12",
+                "last_ref_month TEXT DEFAULT ''"
+            ]
+            for col in new_columns:
+                try:
+                    await db.execute(f"ALTER TABLE users ADD COLUMN {col}")
+                except Exception:
+                    pass
             try:
                 await db.execute("ALTER TABLE users ADD COLUMN referrer_id INTEGER DEFAULT NULL")
             except Exception:
@@ -46,10 +59,11 @@ class Database:
 
     async def add_user(self, tg_id, username, full_name, expiry_ms, is_active=0):
         contact_link = f"tg://user?id={tg_id}"
+        reg_time = int(time.time() * 1000) # ДОБАВЛЕНО
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute(
-                "INSERT OR IGNORE INTO users (tg_id, username, full_name, contact_link, expiry_ms, is_active) VALUES (?, ?, ?, ?, ?, ?)",
-                (tg_id, username, full_name, contact_link, expiry_ms, is_active)
+                "INSERT OR IGNORE INTO users (tg_id, username, full_name, contact_link, expiry_ms, is_active, reg_time_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (tg_id, username, full_name, contact_link, expiry_ms, is_active, reg_time)
             )
             await db.commit()
     async def get_user(self, tg_id):
@@ -67,10 +81,12 @@ class Database:
     async def confirm_payment(self, tg_id, amount, new_expiry_ms):
         current_date = datetime.now().strftime('%d.%m.%Y %H:%M')
         async with aiosqlite.connect(self.db_file) as db:
-            await db.execute("UPDATE users SET expiry_ms = ?, is_active = 1, total_paid = total_paid + ? WHERE tg_id = ?",
-                               (new_expiry_ms, amount, tg_id))
+            # Добавили обнуление стадии напоминаний (lapsed_reminder_stage = 0)
+            await db.execute(
+                "UPDATE users SET expiry_ms = ?, is_active = 1, total_paid = total_paid + ?, lapsed_reminder_stage = 0 WHERE tg_id = ?",
+                (new_expiry_ms, amount, tg_id))
             await db.execute("INSERT INTO transactions (tg_id, amount, pay_date) VALUES (?, ?, ?)",
-                               (tg_id, amount, current_date))
+                             (tg_id, amount, current_date))
             await db.commit()
 
     async def set_user_keys(self, tg_id, user_uuid, sub_id):

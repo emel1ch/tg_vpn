@@ -46,7 +46,7 @@ async def pay_via_sbp(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.delete()
     await callback.message.answer_photo(
         photo=FSInputFile(QR_FILE_PATH),
-        caption="🏦 <b>Оплата по СБП (200₽)</b>\n\nОплатите по QR-коду или ссылке выше.\n\n📸 <b>Затем пришлите сюда скриншот чека.</b>",
+        caption="🏦 <b>Оплата по СБП (200₽)</b>\n\nОплатите по QR-коду или ссылке ниже.\n\n📸 <b>Затем пришлите сюда скриншот чека.</b>",
         reply_markup=kb.adjust(1, 1).as_markup(),
         parse_mode="HTML"
     )

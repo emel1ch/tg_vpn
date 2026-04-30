@@ -1,10 +1,15 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import PAYMENT_LINK
+from config import CHANNEL_URL, GUIDES
 
 
-def get_main_menu():
+def get_main_menu(has_used_trial=True):  # Добавили аргумент
     builder = InlineKeyboardBuilder()
+
+    # Если триал еще не использован, показываем кнопку в самом верху
+    if not has_used_trial:
+        builder.row(InlineKeyboardButton(text="🎁 Получить 3 дня (Trial)", callback_data="get_trial"))
+
     builder.row(InlineKeyboardButton(text="💳 Оплата", callback_data="renew"))
     builder.row(
         InlineKeyboardButton(text="📚 Инструкции", callback_data="guides"),
@@ -14,20 +19,23 @@ def get_main_menu():
         InlineKeyboardButton(text="📜 Транзакции", callback_data="history"),
         InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")
     )
-    # Добавляем новую кнопку во всю ширину
     builder.row(InlineKeyboardButton(text="🎁 Пригласить друга (Бонус)", callback_data="referral_menu"))
+    # Новая кнопка канала
+    builder.row(InlineKeyboardButton(text="📢 Наш Канал", url=CHANNEL_URL))
 
     return builder.as_markup()
 
+
 def get_guides_kb():
     builder = InlineKeyboardBuilder()
-    # Твои актуальные ссылки из main.py
-    builder.row(InlineKeyboardButton(text="🍏 iOS/iPad/TV", url="https://teletype.in/@vpn_gtn/eJMUeXbv9P3"))
-    builder.row(InlineKeyboardButton(text="🤖 Android", url="https://teletype.in/@vpn_gtn/YVYFWWL3pcJ"))
-    builder.row(InlineKeyboardButton(text="💻 Windows", url="https://teletype.in/@vpn_gtn/1oshgSSJjal"))
-    builder.row(InlineKeyboardButton(text="💻 MacOS", url="https://teletype.in/@vpn_gtn/I6p31Dxnwhq"))
-    builder.row(InlineKeyboardButton(text="💻 Linux", url="https://teletype.in/@vpn_gtn/DrBPJnR4dnT"))
-    builder.row(InlineKeyboardButton(text="📺 AndroidTV", url="https://teletype.in/@vpn_gtn/nUHewpzq5B3"))
+    # Теперь берем из .env
+    if GUIDES["IOS"]: builder.row(InlineKeyboardButton(text="🍏 iOS/iPad/TV", url=GUIDES["IOS"]))
+    if GUIDES["AND"]: builder.row(InlineKeyboardButton(text="🤖 Android", url=GUIDES["AND"]))
+    if GUIDES["WIN"]: builder.row(InlineKeyboardButton(text="💻 Windows", url=GUIDES["WIN"]))
+    if GUIDES["MAC"]: builder.row(InlineKeyboardButton(text="💻 MacOS", url=GUIDES["MAC"]))
+    if GUIDES["LINUX"]: builder.row(InlineKeyboardButton(text="💻 Linux", url=GUIDES["LINUX"]))
+    if GUIDES["TV"]: builder.row(InlineKeyboardButton(text="📺 AndroidTV", url=GUIDES["TV"]))
+
     builder.row(InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="to_main"))
     builder.adjust(2, 2, 2, 1)
     return builder.as_markup()

@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime
 from utils.keyboards import get_main_menu, get_back_kb
 from config import GROUP_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
-
+from utils.keyboards import get_guides_kb  
 
 router = Router()
 
@@ -20,81 +20,115 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
     await state.clear()
     uid = message.from_user.id
     user = await db.get_user(uid)
-    args = command.args  # Получаем то, что написано после /start
+    args = command.args
 
     if not user:
-        # НОВЫЙ ПОЛЬЗОВАТЕЛЬ
-        now_ms = int(time.time() * 1000)
-        trial_ms = TRIAL_DAYS * 24 * 60 * 60 * 1000
-        expiry_ms = now_ms + trial_ms
+        # НОВЫЙ ПОЛЬЗОВАТЕЛЬ (Регистрация с 0 временем)
+        await db.add_user(uid, message.from_user.username, message.from_user.full_name, expiry_ms=0, is_active=0)
+        has_used_trial = False
 
-        await db.add_user(uid, message.from_user.username, message.from_user.full_name, expiry_ms=expiry_ms,
-                          is_active=1)
-        # Создаем в Marzban и ловим ответ
-        panel_res = await panel.add_user(INBOUND_ID, None, str(uid), expiry_ms)
+        welcome_text = (
+            f"👋 <b>Добро пожаловать в GTN VPN!</b>\n\n"
+            f"🎁 Вам доступен <b>бесплатный период на {TRIAL_DAYS} дня</b>.\n"
+            f"Нажмите кнопку «🎁 Получить 3 дня (Trial)» ниже, чтобы активировать его!\n\n"
+            f"⚠️ <i>Обязательно подпишитесь на Наш Канал для работы бота.</i>\n\n"
+            f"🆔 Ваш ID: <code>{uid}</code>"
+        )
 
-        # Если успешно создалось, сразу сохраняем ссылку в БД бота
-        if panel_res and panel_res.get("success"):
-            sub_url = panel_res.get("subscription_url", "")
-            if sub_url:
-                await db.set_user_keys(uid, str(uid), sub_url)
-
-        # --- ЛОГИКА РЕФЕРАЛОВ ---
+        # Записываем реферала, но бонусы дадим только после активации триала
         if args and args.startswith("ref"):
             try:
                 referrer_id = int(args.replace("ref", ""))
-                # Проверяем, что не пригласил сам себя и что пригласивший существует
                 if referrer_id != uid and await db.get_user(referrer_id):
                     await db.update_referrer(uid, referrer_id)
-                    refs_count = await db.add_referral_count(referrer_id)
-
-                    # Если счетчик делится на 2 (2, 4, 6...), выдаем 14 дней!
-                    if refs_count % 2 == 0:
-                        ref_user = await db.get_user(referrer_id)
-                        curr_exp = ref_user['expiry_ms'] if ref_user['expiry_ms'] > now_ms else now_ms
-                        new_exp = curr_exp + (14 * 24 * 60 * 60 * 1000)
-
-                        await db.confirm_payment(referrer_id, 0, new_exp)
-                        await panel.extend_user(INBOUND_ID, str(referrer_id), None, None, new_exp)
-
-                        try:
-                            await bot.send_message(referrer_id,
-                                                   "🎉 <b>Вы пригласили 2-х друзей!</b>\nВам начислено <b>14 дней бесплатного VPN</b>!",
-                                                   parse_mode="HTML")
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            await bot.send_message(referrer_id,
-                                                   f"🎁 По вашей ссылке зарегистрировался друг! (<b>{refs_count}</b>)\n<i>Пригласите еще 1, чтобы получить 14 дней.</i>",
-                                                   parse_mode="HTML")
-                        except Exception:
-                            pass
             except ValueError:
-                pass  # Если прислали кривой ref (не число)
-
-        welcome_text = (
-            f"👋 <b>Добро пожаловать!</b>\n\n"
-            f"🎁 Мы начислили вам <b>{TRIAL_DAYS} дня бесплатного доступа</b>!\n"
-            f"Нажмите «📊 Статус (Подписка)», чтобы получить вашу ссылку-подписку.\n\n"
-            f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
-            f"🆔 Ваш ID: <code>{uid}</code>"
-        )
+                pass
     else:
         # СТАРЫЙ ПОЛЬЗОВАТЕЛЬ
+        has_used_trial = bool(user['has_used_trial']) if 'has_used_trial' in user.keys() else True
         welcome_text = (
             f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
             f"🆔 Ваш ID: <code>{uid}</code>"
         )
 
-    # Безопасная отправка меню
     try:
-        await message.delete()  # Очищаем команду /start
+        await message.delete()
     except Exception:
         pass
-    await message.answer(welcome_text, reply_markup=get_main_menu(), parse_mode="HTML")
+
+    await message.answer(welcome_text, reply_markup=get_main_menu(has_used_trial), parse_mode="HTML")
 
 
+@router.callback_query(F.data == "get_trial")
+async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
+    uid = callback.from_user.id
+    user = await db.get_user(uid)
+
+    if user['has_used_trial']:
+        return await callback.answer("❌ Вы уже использовали пробный период!", show_alert=True)
+
+    await callback.answer("⏳ Активируем VPN...", show_alert=False)
+
+    now_ms = int(time.time() * 1000)
+    trial_ms = TRIAL_DAYS * 24 * 60 * 60 * 1000
+    expiry_ms = now_ms + trial_ms
+
+    import aiosqlite
+    # Отмечаем триал и ставим время
+    async with aiosqlite.connect(db.db_file) as dbase:
+        await dbase.execute("UPDATE users SET has_used_trial = 1, expiry_ms = ?, is_active = 1 WHERE tg_id = ?",
+                            (expiry_ms, uid))
+        await dbase.commit()
+
+    panel_res = await panel.add_user(INBOUND_ID, None, str(uid), expiry_ms)
+    if panel_res and panel_res.get("success"):
+        sub_url = panel_res.get("subscription_url", "")
+        if sub_url:
+            await db.set_user_keys(uid, str(uid), sub_url)
+
+    # ЛОГИКА РЕФЕРАЛОВ (срабатывает только сейчас)
+    if user['referrer_id']:
+        ref_id = user['referrer_id']
+        ref_user = await db.get_user(ref_id)
+
+        current_month = datetime.now().strftime("%Y-%m")
+        # Проверяем лимит
+        if ref_user.get('last_ref_month') != current_month:
+            new_limit = ref_user.get('ref_limit', 12) + 2 if ref_user.get('last_ref_month') else 12
+            async with aiosqlite.connect(db.db_file) as dbase:
+                await dbase.execute("UPDATE users SET ref_limit = ?, last_ref_month = ? WHERE tg_id = ?",
+                                    (new_limit, current_month, ref_id))
+                await dbase.commit()
+            ref_limit = new_limit
+        else:
+            ref_limit = ref_user.get('ref_limit', 12)
+
+        refs_count = ref_user.get('referrals_count', 0)
+
+        if refs_count < ref_limit:
+            refs_count = await db.add_referral_count(ref_id)
+            if refs_count % 2 == 0:
+                curr_exp = ref_user['expiry_ms'] if ref_user['expiry_ms'] > now_ms else now_ms
+                new_exp = curr_exp + (14 * 24 * 60 * 60 * 1000)
+                await db.confirm_payment(ref_id, 0, new_exp)
+                await panel.extend_user(INBOUND_ID, str(ref_id), None, None, new_exp)
+                try:
+                    await bot.send_message(ref_id,
+                                           "🎉 <b>Вы пригласили 2-х друзей!</b>\nВам начислено <b>14 дней бесплатного VPN</b>!",
+                                           parse_mode="HTML")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await bot.send_message(ref_id,
+                                           f"🎁 Друг активировал триал! (<b>{refs_count}/{ref_limit}</b> в этом месяце)\n<i>Пригласите еще 1, чтобы получить 14 дней.</i>",
+                                           parse_mode="HTML")
+                except Exception:
+                    pass
+
+    await callback.message.edit_text(
+        "✅ <b>Триал активирован!</b>\nНажмите «📊 Статус (Подписка)», чтобы получить настройки.",
+        reply_markup=get_main_menu(has_used_trial=True), parse_mode="HTML")
 @router.callback_query(F.data == "status")
 async def show_status(callback: types.CallbackQuery, db, panel):
     # 1. ОТЛЕПЛЯЕМ КНОПКУ СРАЗУ (чтобы не было долгих часиков)
@@ -181,15 +215,19 @@ async def forward_support(message: types.Message, state: FSMContext, bot: Bot):
 
 
 @router.callback_query(F.data == "to_main")
-async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+async def back_to_main(callback: types.CallbackQuery, state: FSMContext, db):  # Добавили db сюда!
     await callback.answer()
     await state.clear()
     uid = callback.from_user.id
+
+    user = await db.get_user(uid)
+    has_used_trial = bool(user['has_used_trial']) if user and 'has_used_trial' in user.keys() else True
+
     text = (
         f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
         f"🆔 Ваш ID: <code>{uid}</code>"
     )
-    kb = get_main_menu()
+    kb = get_main_menu(has_used_trial)  # Передаем аргумент
 
     try:
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -198,7 +236,6 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-from utils.keyboards import get_guides_kb  # убедитесь, что этот импорт есть наверху
 
 
 @router.callback_query(F.data == "guides")

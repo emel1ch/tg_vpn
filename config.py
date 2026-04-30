@@ -51,3 +51,15 @@ CRYPTO_QRS = {
     "USDT_TON": "qr_usdt_ton.jpg",
     "USDT_SOL": "qr_usdt_sol.jpg",
 }
+CHANNEL_ID = os.getenv("CHANNEL_ID")
+CHANNEL_ID = int(CHANNEL_ID) if CHANNEL_ID else None
+CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/")
+
+GUIDES = {
+    "IOS": os.getenv("GUIDE_IOS", ""),
+    "AND": os.getenv("GUIDE_AND", ""),
+    "WIN": os.getenv("GUIDE_WIN", ""),
+    "MAC": os.getenv("GUIDE_MAC", ""),
+    "LINUX": os.getenv("GUIDE_LINUX", ""),
+    "TV": os.getenv("GUIDE_TV", "")
+}

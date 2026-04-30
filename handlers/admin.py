@@ -669,3 +669,57 @@ async def cmd_set_sub(message: types.Message, command: CommandObject, db, panel)
             parse_mode="HTML")
     except Exception as e:
         await message.reply(f"❌ Ошибка при исправлении: {e}")
+
+
+@router.message(Command("give_all"))
+async def cmd_give_all(message: types.Message, command: CommandObject, db, panel, bot: Bot):
+    # Защита от чужих
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    args = command.args
+    if not args or not args.isdigit():
+        return await message.answer("⚠️ Использование: <code>/give_all количество_дней</code>", parse_mode="HTML")
+
+    days = int(args)
+    added_ms = days * 24 * 60 * 60 * 1000
+    now_ms = int(time.time() * 1000)
+
+    msg = await message.answer(f"⏳ Начинаю выдачу {days} дней всем пользователям...")
+
+    import aiosqlite
+    success_count = 0
+
+    # Получаем всех пользователей из базы
+    async with aiosqlite.connect(db.db_file) as dbase:
+        dbase.row_factory = aiosqlite.Row
+        async with dbase.execute("SELECT tg_id, expiry_ms FROM users") as cursor:
+            users = await cursor.fetchall()
+
+            for user in users:
+                uid = user['tg_id']
+                curr_exp = user['expiry_ms']
+
+                # Если подписка уже кончилась, прибавляем время к текущему моменту
+                new_exp = (curr_exp if curr_exp > now_ms else now_ms) + added_ms
+
+                # Обновляем в БД (и заодно сбрасываем стадию спам-воронки отвала)
+                await dbase.execute(
+                    "UPDATE users SET expiry_ms = ?, is_active = 1, lapsed_reminder_stage = 0 WHERE tg_id = ?",
+                    (new_exp, uid))
+                await dbase.commit()
+
+                # Обновляем в Marzban
+                await panel.extend_user(INBOUND_ID, str(uid), None, None, new_exp)
+
+                # Рассылаем уведомление
+                try:
+                    await bot.send_message(uid,
+                                           f"🎁 <b>Подарок от администрации!</b>\nВам начислено <b>{days} дней</b> подписки!",
+                                           parse_mode="HTML")
+                    success_count += 1
+                except Exception:
+                    pass  # Пользователь мог заблокировать бота
+
+    await msg.edit_text(f"✅ Успешно!\nВыдано <b>{days} дней</b>.\nОповещено пользователей: <b>{success_count}</b>",
+                        parse_mode="HTML")

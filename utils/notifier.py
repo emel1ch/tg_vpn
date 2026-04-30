@@ -2,6 +2,7 @@ import asyncio
 import time
 from aiogram import Bot
 from database import Database
+import aiosqlite
 
 
 async def check_expiring_subs(bot: Bot, db: Database):
@@ -79,3 +80,82 @@ async def check_expiring_subs(bot: Bot, db: Database):
 
         # Засыпаем на 1 час (3600 секунд) перед следующей проверкой
         await asyncio.sleep(3600)
+
+
+# Тайминги в миллисекундах (Абсолютное время от события: регистрация или конец подписки)
+STAGES_MS = {
+    0: 1 * 3600 * 1000,  # 1 час
+    1: (1 + 6) * 3600 * 1000,  # 7 часов (+6 от пред.)
+    2: (7 + 12) * 3600 * 1000,  # 19 часов (+12 от пред.)
+    3: (19 + 24) * 3600 * 1000,  # 43 часа (+24 от пред.)
+    4: (43 + 72) * 3600 * 1000  # 115 часов (+72 от пред.)
+}
+
+# Тексты для тех, кто НЕ ВЗЯЛ ТРИАЛ
+TRIAL_TEXTS = [
+    "👋 Привет! Вы зарегистрировались час назад, но так и не забрали свой бесплатный VPN на 3 дня!\nЖмите /start и забирайте подарок 🎁",
+    "⏳ Прошло уже 6 часов! Ваш бесплатный триал все еще ждет вас.\nНе упускайте шанс попробовать наш VPN бесплатно 🚀",
+    "🌐 Свободный интернет ждет!\nАктивируйте 3 дня бесплатного доступа прямо сейчас в главном меню /start",
+    "📆 Сутки прошли, а вы еще не с нами. Попробуйте бесплатно, отменить можно в любой момент! 🛡",
+    "😢 Это наше последнее напоминание...\nВаш 3-дневный триал все еще доступен, забегайте, если передумаете! /start"
+]
+
+# Тексты для тех, у кого КОНЧИЛАСЬ ПОДПИСКА
+LAPSED_TEXTS = [
+    "⚠️ Ваша подписка закончилась час назад!\nПродлите её прямо сейчас в меню /start, чтобы оставаться на связи 🔄",
+    "Уже 6 часов без VPN... Возвращайтесь, мы скучаем!\nОплатить подписку можно в главном меню 💳",
+    "🛡 Оставайтесь в безопасности! Продлите подписку и верните доступ к свободному интернету без ограничений.",
+    "🚀 Сутки без подписки. Не забывайте, что с нами быстрее и безопаснее! Ждем вас обратно.",
+    "💔 Прошло 3 дня с момента окончания подписки. Если захотите вернуться – мы всегда тут! /start"
+]
+
+
+async def start_reminder_loop(bot: Bot, db_path: str):
+    """Фоновая задача для рассылки дожимов"""
+    while True:
+        now_ms = int(time.time() * 1000)
+
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            # 1. ВОРОНКА ТРИАЛА (has_used_trial = 0)
+            async with db.execute(
+                    "SELECT tg_id, reg_time_ms, reminder_stage FROM users WHERE has_used_trial = 0") as cursor:
+                async for row in cursor:
+                    stage = row['reminder_stage']
+                    if stage > 4:
+                        continue  # Воронка пройдена полностью
+
+                    target_time = row['reg_time_ms'] + STAGES_MS[stage]
+                    if now_ms >= target_time:
+                        try:
+                            await bot.send_message(row['tg_id'], TRIAL_TEXTS[stage])
+                        except Exception:
+                            pass  # Заблокировал бота
+                        # Переводим на следующую стадию даже если заблокировал (чтобы не спамить ошибки)
+                        await db.execute("UPDATE users SET reminder_stage = ? WHERE tg_id = ?",
+                                         (stage + 1, row['tg_id']))
+                        await db.commit()
+
+            # 2. ВОРОНКА ОТВАЛА (expiry_ms < now AND has_used_trial = 1)
+            # Ищем тех, кто брал триал/покупал, но подписка истекла
+            async with db.execute(
+                    "SELECT tg_id, expiry_ms, lapsed_reminder_stage FROM users WHERE has_used_trial = 1 AND expiry_ms > 0 AND expiry_ms < ?",
+                    (now_ms,)) as cursor:
+                async for row in cursor:
+                    stage = row['lapsed_reminder_stage']
+                    if stage > 4:
+                        continue
+
+                    target_time = row['expiry_ms'] + STAGES_MS[stage]
+                    if now_ms >= target_time:
+                        try:
+                            await bot.send_message(row['tg_id'], LAPSED_TEXTS[stage])
+                        except Exception:
+                            pass
+                        await db.execute("UPDATE users SET lapsed_reminder_stage = ? WHERE tg_id = ?",
+                                         (stage + 1, row['tg_id']))
+                        await db.commit()
+
+        # Пауза перед следующей проверкой (каждые 10 минут)
+        await asyncio.sleep(600)
