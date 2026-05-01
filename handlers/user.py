@@ -6,7 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from datetime import datetime
 from utils.keyboards import get_main_menu, get_back_kb
 from config import GROUP_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
-from utils.keyboards import get_guides_kb  
+from utils.keyboards import get_guides_kb
 
 router = Router()
 
@@ -307,5 +307,3 @@ async def show_referral_menu(callback: types.CallbackQuery, db, bot: Bot):
         pass
 
     await callback.message.answer(text, reply_markup=get_back_kb(), parse_mode="HTML")
-
-

@@ -31,10 +31,8 @@ class PanelAPI:
         if not self.token: await self._get_token()
 
         url = f"{self.base_url}/api/user"
-        headers = {"Authorization": f"Bearer {self.token}"}
         expiry_s = int(expiry_ms / 1000) if expiry_ms > 0 else 0
 
-        # Явно указываем прокси и инбаунд
         payload = {
             "username": str(user_uuid),
             "proxies": {"vless": {}},
@@ -44,61 +42,87 @@ class PanelAPI:
         }
 
         async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bearer {self.token}"}
             async with session.post(url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    # Возвращаем универсальную ссылку
                     return {"success": True, "subscription_url": data.get('subscription_url', '')}
                 elif resp.status == 409:  # Если уже есть
                     return {"success": True}
+                elif resp.status == 401:  # Токен истек
+                    logging.info("Токен Marzban истек при add_user. Обновляем...")
+                    await self._get_token()
+                    headers = {"Authorization": f"Bearer {self.token}"}
+                    async with session.post(url, json=payload, headers=headers) as retry_resp:
+                        if retry_resp.status == 200:
+                            data = await retry_resp.json()
+                            return {"success": True, "subscription_url": data.get('subscription_url', '')}
+                        elif retry_resp.status == 409:
+                            return {"success": True}
                 return {"success": False}
 
     async def get_user(self, user_uuid):
-        """Получает инфу о юзере напрямую из Marzban"""
+        """Получает инфу о юзере напрямую из Marzban с защитой от протухшего токена"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/user/{user_uuid}"
-        headers = {"Authorization": f"Bearer {self.token}"}
+
         async with aiohttp.ClientSession() as session:
+            headers = {"Authorization": f"Bearer {self.token}"}
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     return await resp.json()
-                return None
+                elif resp.status == 401:  # Токен истек
+                    logging.info("Токен Marzban истек при get_user. Обновляем...")
+                    await self._get_token()
+                    headers = {"Authorization": f"Bearer {self.token}"}
+                    async with session.get(url, headers=headers) as retry_resp:
+                        if retry_resp.status == 200:
+                            return await retry_resp.json()
+                        return None
+                else:
+                    return None
 
     async def extend_user(self, inbound_id, user_uuid, user_email, sub_id, new_expiry_ms):
         """Жестко устанавливает новую дату истечения подписки в Marzban"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/user/{user_uuid}"
-        headers = {"Authorization": f"Bearer {self.token}"}
-
-        # Переводим миллисекунды в секунды
         expiry_s = int(new_expiry_ms / 1000) if new_expiry_ms > 0 else 0
-
-        # Формируем тело запроса (жестко ставим expire)
-        payload = {
-            "expire": expiry_s
-        }
+        payload = {"expire": expiry_s}
 
         async with aiohttp.ClientSession() as session:
-            # Делаем PUT запрос для обновления юзера
+            headers = {"Authorization": f"Bearer {self.token}"}
             async with session.put(url, json=payload, headers=headers) as resp:
                 if resp.status == 200:
                     return {"success": True}
+                elif resp.status == 401:  # Токен истек
+                    logging.info("Токен Marzban истек при extend_user. Обновляем...")
+                    await self._get_token()
+                    headers = {"Authorization": f"Bearer {self.token}"}
+                    async with session.put(url, json=payload, headers=headers) as retry_resp:
+                        if retry_resp.status == 200:
+                            return {"success": True}
+                        return {"success": False, "error": await retry_resp.text()}
                 else:
                     return {"success": False, "error": await resp.text()}
-
-    async def close(self):
-        pass
 
     async def get_all_users(self):
         """Получает список всех пользователей из Marzban"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/users"
-        headers = {"Authorization": f"Bearer {self.token}"}
+
         try:
             async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {self.token}"}
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
+                    elif resp.status == 401:  # Токен истек
+                        logging.info("Токен Marzban истек при get_all_users. Обновляем...")
+                        await self._get_token()
+                        headers = {"Authorization": f"Bearer {self.token}"}
+                        async with session.get(url, headers=headers) as retry_resp:
+                            if retry_resp.status == 200:
+                                return await retry_resp.json()
                     return None
         except Exception:
             return None
@@ -107,12 +131,23 @@ class PanelAPI:
         """Получает статистику системы (CPU, RAM, Версия)"""
         if not self.token: await self._get_token()
         url = f"{self.base_url}/api/system"
-        headers = {"Authorization": f"Bearer {self.token}"}
+
         try:
             async with aiohttp.ClientSession() as session:
+                headers = {"Authorization": f"Bearer {self.token}"}
                 async with session.get(url, headers=headers) as resp:
                     if resp.status == 200:
                         return await resp.json()
+                    elif resp.status == 401:  # Токен истек
+                        logging.info("Токен Marzban истек при get_system_stats. Обновляем...")
+                        await self._get_token()
+                        headers = {"Authorization": f"Bearer {self.token}"}
+                        async with session.get(url, headers=headers) as retry_resp:
+                            if retry_resp.status == 200:
+                                return await retry_resp.json()
                     return None
         except Exception:
             return None
+
+    async def close(self):
+        pass
