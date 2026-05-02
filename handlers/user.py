@@ -129,6 +129,13 @@ async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
     await callback.message.edit_text(
         "✅ <b>Триал активирован!</b>\nНажмите «📊 Статус (Подписка)», чтобы получить настройки.",
         reply_markup=get_main_menu(has_used_trial=True), parse_mode="HTML")
+
+
+from datetime import datetime
+import time
+from aiogram import types, F
+
+
 @router.callback_query(F.data == "status")
 async def show_status(callback: types.CallbackQuery, db, panel):
     # 1. ОТЛЕПЛЯЕМ КНОПКУ СРАЗУ (чтобы не было долгих часиков)
@@ -140,20 +147,36 @@ async def show_status(callback: types.CallbackQuery, db, panel):
     if not user_data:
         return await callback.message.answer("❌ Ошибка: запустите бота через /start")
 
-    # Идем в Marzban (если бот локально, а PANEL_URL неправильный - тут он может выдать ошибку связи)
+    # Идем в Marzban
     marzban_user = await panel.get_user(str(user_id))
 
-    # Если юзера нет в панели, но подписка в БД активна — создаем заново
+    # --- 🛡 ВЧЕРАШНЕЕ РЕШЕНИЕ: АВТОВОССТАНОВЛЕНИЕ ---
+    # Если юзера нет в панели (или произошла ошибка), но подписка в БД активна — создаем заново
     if not marzban_user and user_data['expiry_ms'] > int(time.time() * 1000):
         await panel.add_user(1, "user", str(user_id), user_data['expiry_ms'])
         marzban_user = await panel.get_user(str(user_id))
+    # ------------------------------------------------
 
-    status = "🟢 Активен" if user_data['expiry_ms'] > int(time.time() * 1000) else "🔴 Истек"
+    # --- ⏱ НОВАЯ ЛОГИКА ВРЕМЕНИ (MARZBAN КАК ИСТОЧНИК ПРАВДЫ) ---
+    if marzban_user and 'expire' in marzban_user:
+        # Marzban хранит время в секундах, а 0 означает безлимит
+        expire_time_sec = marzban_user['expire']
+
+        # Опционально: Синхронизируем нашу локальную БД с реальными данными из панели
+        if expire_time_sec > 0:
+            await db.extend_user(user_id, int(expire_time_sec * 1000))
+    else:
+        # Фолбэк на локальную базу (если панель недоступна)
+        expire_time_sec = int(user_data['expiry_ms'] / 1000) if user_data['expiry_ms'] > 0 else 0
+
+    # Определяем статус
+    status = "🟢 Активен" if expire_time_sec > time.time() or expire_time_sec == 0 else "🔴 Истек"
 
     # Считаем дату красиво
-    expiry_date = "Никогда"
-    if user_data['expiry_ms'] > 0:
-        expiry_date = datetime.fromtimestamp(user_data['expiry_ms'] / 1000).strftime('%d.%m.%Y %H:%M')
+    expiry_date = "Никогда (Безлимит)"
+    if expire_time_sec > 0:
+        expiry_date = datetime.fromtimestamp(expire_time_sec).strftime('%d.%m.%Y %H:%M')
+    # -----------------------------------------------------------
 
     text = f"📊 <b>Ваш статус:</b> {status}\n"
     text += f"⏳ <b>Истекает:</b> {expiry_date}\n\n"
@@ -177,6 +200,12 @@ async def show_status(callback: types.CallbackQuery, db, panel):
         )
     else:
         text += "⚠️ Ссылка временно недоступна."
+
+    # БЕЗОПАСНЫЙ ВЫВОД (защита от краша Aiogram при изменении сообщения)
+    try:
+        await callback.message.edit_text(text, disable_web_page_preview=True)
+    except Exception:
+        await callback.message.answer(text, disable_web_page_preview=True)
     # 2. БЕЗОПАСНАЯ ОТПРАВКА МЕНЮ
     try:
         await callback.message.delete()
