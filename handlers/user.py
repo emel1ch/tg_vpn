@@ -136,10 +136,14 @@ import time
 from aiogram import types, F
 
 
+from datetime import datetime
+import time
+from aiogram import types, F
+
 @router.callback_query(F.data == "status")
 async def show_status(callback: types.CallbackQuery, db, panel):
-    # 1. ОТЛЕПЛЯЕМ КНОПКУ СРАЗУ (чтобы не было долгих часиков)
-    await callback.answer("⏳ Загружаю данные...")
+    # 1. Отвечаем на коллбэк, чтобы убрать часики загрузки на кнопке
+    await callback.answer()
 
     user_id = callback.from_user.id
     user_data = await db.get_user(user_id)
@@ -151,20 +155,15 @@ async def show_status(callback: types.CallbackQuery, db, panel):
     marzban_user = await panel.get_user(str(user_id))
 
     # --- 🛡 ВЧЕРАШНЕЕ РЕШЕНИЕ: АВТОВОССТАНОВЛЕНИЕ ---
-    # Если юзера нет в панели (или произошла ошибка), но подписка в БД активна — создаем заново
     if not marzban_user and user_data['expiry_ms'] > int(time.time() * 1000):
         await panel.add_user(1, "user", str(user_id), user_data['expiry_ms'])
         marzban_user = await panel.get_user(str(user_id))
     # ------------------------------------------------
 
-    # --- ⏱ НОВАЯ ЛОГИКА ВРЕМЕНИ (MARZBAN КАК ИСТОЧНИК ПРАВДЫ) ---
+    # --- ⏱ ЛОГИКА ВРЕМЕНИ (MARZBAN КАК ИСТОЧНИК ПРАВДЫ) ---
     if marzban_user and 'expire' in marzban_user:
-        # Marzban хранит время в секундах, а 0 означает безлимит
         expire_time_sec = marzban_user['expire']
-
-        # Опционально: Синхронизируем нашу локальную БД с реальными данными из панели
-        if expire_time_sec > 0:
-            await db.extend_user(user_id, int(expire_time_sec * 1000))
+        # Базу данных тут больше не дергаем, чтобы не было ошибки AttributeError
     else:
         # Фолбэк на локальную базу (если панель недоступна)
         expire_time_sec = int(user_data['expiry_ms'] / 1000) if user_data['expiry_ms'] > 0 else 0
@@ -201,18 +200,19 @@ async def show_status(callback: types.CallbackQuery, db, panel):
     else:
         text += "⚠️ Ссылка временно недоступна."
 
-    # БЕЗОПАСНЫЙ ВЫВОД (защита от краша Aiogram при изменении сообщения)
+    # --- ПРАВИЛЬНОЕ ОБНОВЛЕНИЕ СООБЩЕНИЯ ---
     try:
-        await callback.message.edit_text(text, disable_web_page_preview=True)
+        # Пытаемся просто обновить текст текущего сообщения (и оставляем кнопку Назад)
+        await callback.message.edit_text(
+            text,
+            disable_web_page_preview=True,
+            reply_markup=get_back_kb(),
+            parse_mode="HTML"
+        )
     except Exception:
-        await callback.message.answer(text, disable_web_page_preview=True)
-    # 2. БЕЗОПАСНАЯ ОТПРАВКА МЕНЮ
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass  # Игнорируем ошибку удаления
-
-    await callback.message.answer(text, reply_markup=get_back_kb(), parse_mode="HTML")
+        # Если текст остался точно таким же, Telegram выдаст ошибку "Message is not modified".
+        # Нам в таком случае вообще ничего делать не нужно — сообщение и так актуальное.
+        pass
 
 @router.callback_query(F.data == "support")
 async def support_init(callback: types.CallbackQuery, state: FSMContext):
