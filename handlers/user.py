@@ -140,9 +140,9 @@ from datetime import datetime
 import time
 from aiogram import types, F
 
+
 @router.callback_query(F.data == "status")
 async def show_status(callback: types.CallbackQuery, db, panel):
-    # 1. Отвечаем на коллбэк, чтобы убрать часики загрузки на кнопке
     await callback.answer()
 
     user_id = callback.from_user.id
@@ -151,27 +151,29 @@ async def show_status(callback: types.CallbackQuery, db, panel):
     if not user_data:
         return await callback.message.answer("❌ Ошибка: запустите бота через /start")
 
-    # Идем в Marzban
     marzban_user = await panel.get_user(str(user_id))
+    now_ms = int(time.time() * 1000)
 
-    # --- 🛡 ВЧЕРАШНЕЕ РЕШЕНИЕ: АВТОВОССТАНОВЛЕНИЕ ---
-    if not marzban_user and user_data['expiry_ms'] > int(time.time() * 1000):
+    # --- 🛡 АВТОВОССТАНОВЛЕНИЕ ---
+    if not marzban_user and user_data['expiry_ms'] > now_ms:
         await panel.add_user(1, "user", str(user_id), user_data['expiry_ms'])
         marzban_user = await panel.get_user(str(user_id))
     # ------------------------------------------------
 
-    # --- ⏱ ЛОГИКА ВРЕМЕНИ (MARZBAN КАК ИСТОЧНИК ПРАВДЫ) ---
+    # --- ⏱ ЛОГИКА ВРЕМЕНИ И ЛЕЧЕНИЕ БАЗЫ БОТА ---
     if marzban_user and 'expire' in marzban_user:
-        expire_time_sec = marzban_user['expire']
-        # Базу данных тут больше не дергаем, чтобы не было ошибки AttributeError
+        expire_time_sec = marzban_user['expire'] or 0
+        marzban_expiry_ms = expire_time_sec * 1000
+
+        # Если в панели время больше, чем в базе бота (лечим последствия старого бага)
+        if marzban_expiry_ms > user_data['expiry_ms']:
+            await db.confirm_payment(user_id, 0, marzban_expiry_ms)
+
     else:
-        # Фолбэк на локальную базу (если панель недоступна)
         expire_time_sec = int(user_data['expiry_ms'] / 1000) if user_data['expiry_ms'] > 0 else 0
 
-    # Определяем статус
     status = "🟢 Активен" if expire_time_sec > time.time() or expire_time_sec == 0 else "🔴 Истек"
 
-    # Считаем дату красиво
     expiry_date = "Никогда (Безлимит)"
     if expire_time_sec > 0:
         expiry_date = datetime.fromtimestamp(expire_time_sec).strftime('%d.%m.%Y %H:%M')

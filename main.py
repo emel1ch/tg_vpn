@@ -39,7 +39,7 @@ async def main():
     dp.include_router(user.router)
     dp.include_router(payment.router)
     dp.include_router(admin.router)
-    asyncio.create_task(check_expiring_subs(bot, db))
+    asyncio.create_task(check_expiring_subs(bot, db, panel))
     asyncio.create_task(start_reminder_loop(bot, db.db_file))
     await db.create_tables()
     print("🚀 Бот GTN VPN запущен!")

@@ -5,7 +5,7 @@ from database import Database
 import aiosqlite
 
 
-async def check_expiring_subs(bot: Bot, db: Database):
+async def check_expiring_subs(bot: Bot, db: Database,panel):
     """
     Фоновая задача, которая проверяет сроки подписок.
     Рекомендуется запускать раз в час.
@@ -25,6 +25,21 @@ async def check_expiring_subs(bot: Bot, db: Database):
 
                 # Если подписка уже истекла, помечаем юзера как неактивного
                 if expiry_ms > 0 and expiry_ms < now_ms:
+
+                    # --- 🛡 ЗАЩИТА ОТ РАССИНХРОНА ---
+                    # Спрашиваем у Marzban: а точно ли истекла?
+                    marzban_user = await panel.get_user(str(tg_id))
+
+                    if marzban_user and marzban_user.get('expire'):
+                        marzban_expiry_ms = marzban_user['expire'] * 1000
+
+                        # Если в панели время еще есть (лечим базу и пропускаем отключение)
+                        if marzban_expiry_ms > now_ms:
+                            await db.confirm_payment(tg_id, 0, marzban_expiry_ms)
+                            continue  # Юзер спасен, идем к следующему
+                    # --------------------------------
+
+                    # Если и в панели пусто/истекло, тогда честно отключаем
                     await db.set_user_inactive(tg_id)
                     try:
                         await bot.send_message(
