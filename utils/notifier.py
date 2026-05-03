@@ -174,3 +174,25 @@ async def start_reminder_loop(bot: Bot, db_path: str):
 
         # Пауза перед следующей проверкой (каждые 10 минут)
         await asyncio.sleep(600)
+
+
+async def auto_sync_loop(db, panel):
+    """Бесконечный цикл, который обновляет базу каждый час"""
+    while True:
+        try:
+            marzban_data = await panel.get_all_users()
+            if marzban_data and 'users' in marzban_data:
+                for m_user in marzban_data['users']:
+                    if m_user.get('username').isdigit():
+                        tg_id = int(m_user.get('username'))
+                        expiry_ms = m_user.get('expire', 0) * 1000
+                        is_active = 1 if m_user.get('status') == 'active' else 0
+                        sub_url = m_user.get('subscription_url', '')
+
+                        local_user = await db.get_user(tg_id)
+                        if local_user:
+                            await db.update_sync_data(tg_id, expiry_ms, is_active, sub_url)
+        except Exception as e:
+            print(f"Ошибка авто-синхронизации: {e}")
+
+        await asyncio.sleep(3600)  # Спим ровно 1 час (3600 секунд)

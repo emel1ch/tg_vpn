@@ -482,13 +482,32 @@ async def reject_payment(callback: types.CallbackQuery, bot: Bot):
         )
     except Exception:
         pass
+
+
 @router.message(Command("export"))
-async def export_excel_command(message: types.Message, db):
-    # Защита: чтобы команду мог вызвать только админ
+async def export_excel_command(message: types.Message, db, panel):  # <--- Добавь panel сюда!
     if message.from_user.id != ADMIN_ID:
         return
 
-    # Получаем 100% активные подписки
+    msg = await message.answer("🔄 Актуализирую данные перед выгрузкой...")
+
+    # Быстрая фоновая синхронизация перед созданием файла
+    marzban_data = await panel.get_all_users()
+    if marzban_data and 'users' in marzban_data:
+        for m_user in marzban_data['users']:
+            if m_user.get('username').isdigit():
+                tg_id = int(m_user.get('username'))
+                expiry_ms = m_user.get('expire', 0) * 1000
+                is_active = 1 if m_user.get('status') == 'active' else 0
+                sub_url = m_user.get('subscription_url', '')
+
+                local_user = await db.get_user(tg_id)
+                if local_user:
+                    await db.update_sync_data(tg_id, expiry_ms, is_active, sub_url)
+
+    await msg.delete()  # Удаляем системное сообщение
+
+    # Получаем 100% актуальные подписки из нашей локальной базы
     users = await db.get_active_subscriptions()
 
     if not users:
@@ -566,69 +585,46 @@ async def cmd_sync_users(message: types.Message, db, panel):
         return
 
     msg = await message.answer("⏳ <b>Начинаю синхронизацию с Marzban...</b>", parse_mode="HTML")
-
-    # 1. Получаем всех юзеров из Marzban
     marzban_data = await panel.get_all_users()
 
     if not marzban_data or 'users' not in marzban_data:
         return await msg.edit_text("❌ Ошибка: не удалось получить данные из панели Marzban.")
 
     added_count = 0
+    updated_count = 0
     skipped_count = 0
 
-    # 2. Перебираем каждого пользователя из панели
     for m_user in marzban_data['users']:
         m_username = m_user.get('username')
 
-        # Поскольку наш бот создает пользователей в Marzban,
-        # используя их TG ID в качестве username, мы проверяем, число ли это
         if not m_username.isdigit():
-            # Если логин буквенный (например, admin), пропускаем, это не клиент из телеграма
             skipped_count += 1
             continue
 
         tg_id = int(m_username)
-        # В Marzban время в секундах, а в боте в миллисекундах
         expiry_ms = m_user.get('expire', 0) * 1000
-        status = m_user.get('status')
-        is_active = 1 if status == 'active' else 0
+        is_active = 1 if m_user.get('status') == 'active' else 0
         sub_url = m_user.get('subscription_url', '')
 
-        # 3. Проверяем, есть ли он в базе бота
         local_user = await db.get_user(tg_id)
 
         if not local_user:
             # Юзера нет в боте! Добавляем его
             await db.add_user(
-                tg_id=tg_id,
-                username="ImportedFromPanel",  # Тг-юзернейм мы пока не знаем
-                full_name="User",
-                expiry_ms=expiry_ms,
-                is_active=is_active
+                tg_id=tg_id, username="ImportedFromPanel", full_name="User",
+                expiry_ms=expiry_ms, is_active=is_active
             )
-            # Сразу прописываем ему правильную ссылку на подписку
             await db.set_user_keys(tg_id, str(tg_id), sub_url)
             added_count += 1
         else:
-            if not local_user:
-                # Юзера нет в боте! Добавляем его
-                await db.add_user(
-                    tg_id=tg_id,
-                    username="ImportedFromPanel",
-                    full_name="User",
-                    expiry_ms=expiry_ms,
-                    is_active=is_active
-                )
-                await db.set_user_keys(tg_id, str(tg_id), sub_url)
-                added_count += 1
-            else:
-                # Юзер уже есть! Но вдруг у него в Экселе пустая ссылка? Обновляем!
-                if sub_url:
-                    await db.set_user_keys(tg_id, str(tg_id), sub_url)
+            # Юзер есть! Тихо обновляем ему время и статус, чтобы убить рассинхрон
+            await db.update_sync_data(tg_id, expiry_ms, is_active, sub_url)
+            updated_count += 1
 
     await msg.edit_text(
         f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
         f"📥 Подтянуто новых юзеров: <b>{added_count}</b>\n"
+        f"🔄 Обновлено существующих: <b>{updated_count}</b>\n"
         f"⏭ Пропущено не-TG аккаунтов: <b>{skipped_count}</b>",
         parse_mode="HTML"
     )

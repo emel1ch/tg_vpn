@@ -151,3 +151,4 @@ class PanelAPI:
 
     async def close(self):
         pass
+

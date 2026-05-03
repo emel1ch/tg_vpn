@@ -154,3 +154,13 @@ class Database:
             # Ищем тех, у кого дата истечения больше текущей
             async with db.execute("SELECT * FROM users WHERE expiry_ms > ?", (current_time_ms,)) as cursor:
                 return await cursor.fetchall()
+
+    async def update_sync_data(self, tg_id, expiry_ms, is_active, sub_id):
+        """Тихо обновляет данные пользователя при синхронизации с панелью"""
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute("""
+                UPDATE users 
+                SET expiry_ms = ?, is_active = ?, sub_id = ? 
+                WHERE tg_id = ?
+            """, (expiry_ms, is_active, sub_id, tg_id))
+            await db.commit()
