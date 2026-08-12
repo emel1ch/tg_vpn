@@ -410,6 +410,8 @@ from aiogram.exceptions import TelegramBadRequest
 # ==========================================
 @router.callback_query(F.data.startswith("pay_yes:"))
 async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("⏳ Одобряю...", show_alert=False)
 
     # Достаем ID пользователя из callback_data (pay_yes:12345678)
@@ -461,6 +463,8 @@ async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
 
 @router.callback_query(F.data.startswith("pay_no:"))
 async def reject_payment(callback: types.CallbackQuery, bot: Bot):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("Отклонено", show_alert=False)
     user_id = int(callback.data.split(":")[1])
 
