@@ -74,6 +74,14 @@ class Database:
             except Exception:
                 pass
 
+            # Персистентный флаг для надёжных напоминаний об истечении (Фаза 3.3):
+            # раньше отправка зависела от попадания в узкое "окно" при часовом цикле
+            # и легко проскакивала при рестарте бота.
+            try:
+                await db.execute("ALTER TABLE users ADD COLUMN last_expiry_notify_days INTEGER DEFAULT NULL")
+            except Exception:
+                pass
+
             # --- АНАЛИТИЧЕСКАЯ СХЕМА (Фаза 2) ---
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS events (
@@ -137,12 +145,20 @@ class Database:
     async def confirm_payment(self, tg_id, amount, new_expiry_ms):
         current_date = datetime.now().strftime('%d.%m.%Y %H:%M')
         async with aiosqlite.connect(self.db_file) as db:
-            # Добавили обнуление стадии напоминаний (lapsed_reminder_stage = 0)
+            # Обнуляем стадию напоминаний об отвале и флаг напоминаний об истечении
+            # (last_expiry_notify_days) — подписка продлена, старый цикл уведомлений
+            # больше не актуален.
             await db.execute(
-                "UPDATE users SET expiry_ms = ?, is_active = 1, total_paid = total_paid + ?, lapsed_reminder_stage = 0 WHERE tg_id = ?",
+                "UPDATE users SET expiry_ms = ?, is_active = 1, total_paid = total_paid + ?, "
+                "lapsed_reminder_stage = 0, last_expiry_notify_days = NULL WHERE tg_id = ?",
                 (new_expiry_ms, amount, tg_id))
             await db.execute("INSERT INTO transactions (tg_id, amount, pay_date) VALUES (?, ?, ?)",
                              (tg_id, amount, current_date))
+            await db.commit()
+
+    async def update_expiry_notify_stage(self, tg_id: int, days_left: int):
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute("UPDATE users SET last_expiry_notify_days = ? WHERE tg_id = ?", (days_left, tg_id))
             await db.commit()
 
     async def set_user_keys(self, tg_id, user_uuid, sub_id):
