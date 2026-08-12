@@ -1,7 +1,7 @@
 import asyncio
 import time
 from aiogram import Bot
-from database import Database
+from database import Database, get_db_connection
 import aiosqlite
 
 
@@ -130,7 +130,7 @@ async def start_reminder_loop(bot: Bot, db_path: str):
     while True:
         now_ms = int(time.time() * 1000)
 
-        async with aiosqlite.connect(db_path) as db:
+        async with get_db_connection(db_path) as db:
             db.row_factory = aiosqlite.Row
 
             # 1. ВОРОНКА ТРИАЛА (has_used_trial = 0)
