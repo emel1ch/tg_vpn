@@ -6,6 +6,7 @@ from database import Database
 from api_client import PanelAPI
 from handlers import user, payment, admin
 from utils.notifier import check_expiring_subs,start_reminder_loop, auto_sync_loop
+from utils.snapshot import daily_snapshot_loop
 from aiogram.types import CallbackQuery
 
 if sys.stdout.encoding != "utf-8":
@@ -53,6 +54,7 @@ async def main():
     asyncio.create_task(check_expiring_subs(bot, db, panel))
     asyncio.create_task(start_reminder_loop(bot, db.db_file))
     asyncio.create_task(auto_sync_loop(db, panel))  # <--- Добавили наш часовой луп
+    asyncio.create_task(daily_snapshot_loop(db.db_file))
     print("🚀 Бот GTN VPN запущен!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
