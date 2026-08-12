@@ -10,6 +10,7 @@ from openpyxl.styles import Font
 from io import BytesIO
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
 
+router = Router()
 
 
 # ==========================================
@@ -396,8 +397,8 @@ async def reply_from_admin(message: types.Message, bot: Bot):
             # Ставим реакцию в админ-группе, чтобы админ понял, что ответ ушел (опционально)
             await message.react([types.ReactionTypeEmoji(emoji="👍")])
 
-        except Exception as e:
-            await message.reply(f"❌ Ошибка отправки: Пользователь заблокировал бота или удален.")
+        except Exception:
+            await message.reply("❌ Ошибка отправки: Пользователь заблокировал бота или удален.")
 
 
 import time
