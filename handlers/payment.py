@@ -12,6 +12,7 @@ from utils.keyboards import (
     get_payment_done_kb,
     get_main_menu
 )
+from utils.screen import render_screen
 
 router = Router()
 
@@ -27,11 +28,7 @@ async def choose_payment_method(callback: types.CallbackQuery, state: FSMContext
     await state.clear()
     text = "💳 <b>Выберите способ оплаты (200₽ или эквивалент):</b>\n\nБанковские карты принимаются через СБП, а криптовалюта — прямым переводом."
 
-    try:
-        await callback.message.edit_text(text, reply_markup=get_payment_method_kb(), parse_mode="HTML")
-    except Exception:
-        await callback.message.delete()
-        await callback.message.answer(text, reply_markup=get_payment_method_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_payment_method_kb())
 
 
 # 2. Выбрали СБП (Показываем старый добрый QR)
@@ -58,11 +55,7 @@ async def pay_via_sbp(callback: types.CallbackQuery, state: FSMContext):
 async def choose_crypto_coin(callback: types.CallbackQuery):
     await callback.answer()
     text = "🪙 <b>Выберите криптовалюту для оплаты:</b>\n<i>Мы рассчитаем эквивалент 200₽ в выбранной монете по текущему курсу.</i>"
-    try:
-        await callback.message.edit_text(text, reply_markup=get_crypto_method_kb(), parse_mode="HTML")
-    except Exception:
-        await callback.message.delete()
-        await callback.message.answer(text, reply_markup=get_crypto_method_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_crypto_method_kb())
 
 
 # 4. Выбрали USDT (Выбор сети)
@@ -70,7 +63,7 @@ async def choose_crypto_coin(callback: types.CallbackQuery):
 async def choose_usdt_network(callback: types.CallbackQuery):
     await callback.answer()
     text = "🟢 <b>USDT: Выберите сеть перевода:</b>\n⚠️ Внимательно выбирайте сеть, иначе средства будут утеряны!"
-    await callback.message.edit_text(text, reply_markup=get_usdt_network_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_usdt_network_kb())
 
 
 # 5. Финал крипты (Выдача кошелька)

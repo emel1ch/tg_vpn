@@ -12,6 +12,7 @@ import openpyxl
 from openpyxl.styles import Font
 from io import BytesIO
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID, BACKUP_GPG_PASSPHRASE
+from utils.screen import render_screen
 
 router = Router()
 
@@ -68,10 +69,8 @@ async def handle_refresh(callback: types.CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
     uptime = subprocess.run(['uptime', '-p'], capture_output=True, text=True).stdout.strip()
     try:
-        await callback.message.edit_text(f"💻 <b>CORE_CONTROL (Marzban)</b>\nUptime: {uptime}\n<i>Обновлено.</i>",
-                                         parse_mode="HTML", reply_markup=get_admin_kb())
-    except Exception:
-        pass
+        await render_screen(callback.message, f"💻 <b>CORE_CONTROL (Marzban)</b>\nUptime: {uptime}\n<i>Обновлено.</i>",
+                            reply_markup=get_admin_kb())
     finally:
         await callback.answer("Обновлено")
 
@@ -104,7 +103,7 @@ async def handle_status(callback: types.CallbackQuery, panel):
                   f"💾 <b>RAM:</b> {mem_used:.2f} GB / {mem_total:.2f} GB\n"
                   f"🌐 <b>Версия:</b> {version}")
 
-        await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
+        await render_screen(callback.message, report, reply_markup=get_admin_kb())
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка кода статуса: {e}")
     finally:
@@ -133,7 +132,7 @@ async def handle_users_stat(callback: types.CallbackQuery, panel):
         for u in top_users:
             report += f"👤 <code>{u.get('username')}</code>: {(u.get('used_traffic', 0) / (1024 ** 3)):.2f} GB\n"
 
-        await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
+        await render_screen(callback.message, report, reply_markup=get_admin_kb())
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка вывода юзеров: {e}")
     finally:
@@ -156,10 +155,11 @@ async def handle_backup(callback: types.CallbackQuery, bot: Bot):
 
         if not BACKUP_GPG_PASSPHRASE:
             subprocess.run(['rm', '-rf', temp_dir])
-            await callback.message.edit_text(
+            await render_screen(
+                callback.message,
                 "❌ <b>Бэкап отменён:</b> не задан BACKUP_GPG_PASSPHRASE.\n"
                 "Базы содержат платежи и Telegram ID — отправлять их без шифрования нельзя.",
-                parse_mode="HTML", reply_markup=get_admin_kb())
+                reply_markup=get_admin_kb())
             return
 
         for src, dest_name, caption in tasks:
@@ -204,7 +204,7 @@ async def handle_backup(callback: types.CallbackQuery, bot: Bot):
 
         subprocess.run(['rm', '-rf', temp_dir])
         report = f"📦 <b>Бэкап (GPG-шифрование):</b>\nTG: Marzban {status_tg[0]} | Бот {status_tg[1]}\nDrive: Marzban {status_drive[0]} | Бот {status_drive[1]}"
-        await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
+        await render_screen(callback.message, report, reply_markup=get_admin_kb())
     except Exception as e:
         await bot.send_message(ADMIN_ID, f"❌ Критическая ошибка бэкапов: {e}")
 
@@ -265,12 +265,12 @@ async def cmd_sendall(message: types.Message, command: CommandObject, db, bot: B
             failed += 1
         await asyncio.sleep(0.05) # Безопасная пауза от спам-блока
 
-    await msg.edit_text(
+    await render_screen(
+        msg,
         f"✅ <b>Рассылка завершена!</b>\n\n"
         f"✉️ Доставлено: {success}\n"
         f"🚫 Заблокировали бота: {blocked}\n"
-        f"❌ Ошибок: {failed}",
-        parse_mode="HTML"
+        f"❌ Ошибок: {failed}"
     )
 
 @router.message(Command("give_sub"))
@@ -703,7 +703,7 @@ async def cmd_sync_users(message: types.Message, db, panel):
     marzban_data = await panel.get_all_users()
 
     if not marzban_data or 'users' not in marzban_data:
-        return await msg.edit_text("❌ Ошибка: не удалось получить данные из панели Marzban.")
+        return await render_screen(msg, "❌ Ошибка: не удалось получить данные из панели Marzban.")
 
     added_count = 0
     updated_count = 0
@@ -736,12 +736,12 @@ async def cmd_sync_users(message: types.Message, db, panel):
             await db.update_sync_data(tg_id, expiry_ms, is_active, sub_url)
             updated_count += 1
 
-    await msg.edit_text(
+    await render_screen(
+        msg,
         f"✅ <b>Синхронизация успешно завершена!</b>\n\n"
         f"📥 Подтянуто новых юзеров: <b>{added_count}</b>\n"
         f"🔄 Обновлено существующих: <b>{updated_count}</b>\n"
-        f"⏭ Пропущено не-TG аккаунтов: <b>{skipped_count}</b>",
-        parse_mode="HTML"
+        f"⏭ Пропущено не-TG аккаунтов: <b>{skipped_count}</b>"
     )
 @router.message(Command("set_sub"))
 async def cmd_set_sub(message: types.Message, command: CommandObject, db, panel):
@@ -855,19 +855,19 @@ async def confirm_bulk_execute(callback: types.CallbackQuery, state: FSMContext,
     data = await state.get_data()
     await state.clear()
     action = data.get("action")
-    await callback.message.edit_text("⏳ Выполняю...")
+    await render_screen(callback.message, "⏳ Выполняю...")
 
     if action == "give_all":
         days = data["days"]
         success_count = await _execute_give_all(bot, db, panel, days)
-        await callback.message.edit_text(
-            f"✅ Успешно!\nВыдано <b>{days} дней</b>.\nОповещено пользователей: <b>{success_count}</b>",
-            parse_mode="HTML")
+        await render_screen(
+            callback.message,
+            f"✅ Успешно!\nВыдано <b>{days} дней</b>.\nОповещено пользователей: <b>{success_count}</b>")
     elif action == "promo_may2":
         success_count = await _execute_promo_may2(db, panel)
-        await callback.message.edit_text(
-            f"✅ <b>Готово!</b>\nСрок подписки для {success_count} пользователей успешно установлен ровно до 2 мая 2026 года.",
-            parse_mode="HTML")
+        await render_screen(
+            callback.message,
+            f"✅ <b>Готово!</b>\nСрок подписки для {success_count} пользователей успешно установлен ровно до 2 мая 2026 года.")
 
 
 @router.callback_query(F.data == "confirm_bulk_no", ConfirmState.waiting_confirm)
@@ -875,4 +875,4 @@ async def confirm_bulk_cancel(callback: types.CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
         return
     await state.clear()
-    await callback.message.edit_text("❌ Отменено.")
+    await render_screen(callback.message, "❌ Отменено.")

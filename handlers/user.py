@@ -7,6 +7,7 @@ from datetime import datetime
 from utils.keyboards import get_main_menu, get_back_kb
 from config import GROUP_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
 from utils.keyboards import get_guides_kb
+from utils.screen import render_screen
 
 router = Router()
 
@@ -135,9 +136,10 @@ async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
                 except Exception:
                     pass
 
-    await callback.message.edit_text(
+    await render_screen(
+        callback.message,
         "✅ <b>Триал активирован!</b>\nНажмите «📊 Статус (Подписка)», чтобы получить настройки.",
-        reply_markup=get_main_menu(has_used_trial=True), parse_mode="HTML")
+        reply_markup=get_main_menu(has_used_trial=True))
 
 
 @router.callback_query(F.data == "status")
@@ -201,25 +203,13 @@ async def show_status(callback: types.CallbackQuery, db, panel):
     else:
         text += "⚠️ Ссылка временно недоступна."
 
-    # --- ПРАВИЛЬНОЕ ОБНОВЛЕНИЕ СООБЩЕНИЯ ---
-    try:
-        # Пытаемся просто обновить текст текущего сообщения (и оставляем кнопку Назад)
-        await callback.message.edit_text(
-            text,
-            disable_web_page_preview=True,
-            reply_markup=get_back_kb(),
-            parse_mode="HTML"
-        )
-    except Exception:
-        # Если текст остался точно таким же, Telegram выдаст ошибку "Message is not modified".
-        # Нам в таком случае вообще ничего делать не нужно — сообщение и так актуальное.
-        pass
+    await render_screen(callback.message, text, reply_markup=get_back_kb(), disable_web_page_preview=True)
 
 @router.callback_query(F.data == "support")
 async def support_init(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     await state.set_state(SupportState.waiting_for_msg)
-    await callback.message.edit_text("📝 Опиши свою проблему, я передам её админу.", reply_markup=get_back_kb())
+    await render_screen(callback.message, "📝 Опиши свою проблему, я передам её админу.", reply_markup=get_back_kb())
 
 
 @router.message(SupportState.waiting_for_msg)
@@ -262,32 +252,25 @@ async def back_to_main(callback: types.CallbackQuery, state: FSMContext, db):  #
     )
     kb = get_main_menu(has_used_trial)  # Передаем аргумент
 
-    try:
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        await callback.message.delete()
-        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=kb)
 
 
 
 
 @router.callback_query(F.data == "guides")
-async def show_guides(callback: types.CallbackQuery):
+async def show_guides(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
+    await state.clear()
 
     text = "📚 <b>Инструкции по настройке VPN</b>\n\nВыберите вашу платформу, чтобы посмотреть подробный гайд:"
 
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    await callback.message.answer(text, reply_markup=get_guides_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_guides_kb())
 
 
 @router.callback_query(F.data == "history")
-async def show_history(callback: types.CallbackQuery, db):
+async def show_history(callback: types.CallbackQuery, db, state: FSMContext):
     await callback.answer()
+    await state.clear()
 
     user_id = callback.from_user.id
     transactions = await db.get_transactions(user_id, limit=5)
@@ -299,17 +282,13 @@ async def show_history(callback: types.CallbackQuery, db):
         for idx, t in enumerate(transactions, 1):
             text += f"{idx}. <b>{t['amount']}₽</b> — <i>{t['pay_date']}</i>\n"
 
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    await callback.message.answer(text, reply_markup=get_back_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_back_kb())
 
 
 @router.callback_query(F.data == "referral_menu")
-async def show_referral_menu(callback: types.CallbackQuery, db, bot: Bot):
+async def show_referral_menu(callback: types.CallbackQuery, db, bot: Bot, state: FSMContext):
     await callback.answer()
+    await state.clear()
     uid = callback.from_user.id
     user = await db.get_user(uid)
 
@@ -334,9 +313,4 @@ async def show_referral_menu(callback: types.CallbackQuery, db, bot: Bot):
         f"<i>Нажмите на ссылку, чтобы скопировать её и отправить друзьям!</i>"
     )
 
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    await callback.message.answer(text, reply_markup=get_back_kb(), parse_mode="HTML")
+    await render_screen(callback.message, text, reply_markup=get_back_kb())
