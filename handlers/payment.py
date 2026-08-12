@@ -126,7 +126,7 @@ async def handle_payment_photo(message: types.Message, state: FSMContext, bot: B
     await bot.send_photo(
         GROUP_ID,
         message.photo[-1].file_id,
-        caption=f"💰 <b>Новый чек на проверку!</b>\nОт: @{message.from_user.username or 'скрыт'}\n🆔 ID: <code>{message.from_user.id}</code>",
+        caption=f"💰 <b>Новый чек на проверку!</b>\nОт: @{message.from_user.username or 'скрыт'}\n☝️||UID:{message.from_user.id}||",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )

@@ -372,14 +372,18 @@ import re  # Убедитесь, что импорт re есть в начале
 
 @router.message(F.chat.id == GROUP_ID, F.reply_to_message)
 async def reply_from_admin(message: types.Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+
     # Берем текст оригинального сообщения, на которое отвечает админ
     original_text = message.reply_to_message.text or message.reply_to_message.caption
 
     if not original_text:
         return  # Если оригинальное сообщение было стикером или войсом без подписи
 
-    # Ищем в тексте строку "ID: 12345678"
-    match = re.search(r"ID:\s*(\d+)", original_text)
+    # Маркер ||UID:...|| строго в конце текста — его нельзя подделать содержимым
+    # самого обращения (в отличие от старого поиска "ID: 123" где угодно в тексте).
+    match = re.search(r"\|\|UID:(\d+)\|\|$", original_text.strip())
 
     if match:
         user_id = int(match.group(1))
