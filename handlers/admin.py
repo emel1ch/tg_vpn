@@ -541,7 +541,7 @@ async def export_excel_command(message: types.Message, db, panel):  # <--- До�
     marzban_data = await panel.get_all_users()
     if marzban_data and 'users' in marzban_data:
         for m_user in marzban_data['users']:
-            if m_user.get('username').isdigit():
+            if (m_user.get('username') or '').isdigit():
                 tg_id = int(m_user.get('username'))
                 expiry_ms = m_user.get('expire', 0) * 1000
                 is_active = 1 if m_user.get('status') == 'active' else 0
@@ -641,7 +641,7 @@ async def cmd_sync_users(message: types.Message, db, panel):
     skipped_count = 0
 
     for m_user in marzban_data['users']:
-        m_username = m_user.get('username')
+        m_username = m_user.get('username') or ''
 
         if not m_username.isdigit():
             skipped_count += 1
