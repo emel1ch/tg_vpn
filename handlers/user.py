@@ -8,6 +8,7 @@ from utils.keyboards import get_main_menu, get_back_kb
 from config import GROUP_ID, TRIAL_DAYS, INBOUND_ID, HAPP_ROUTING_LINK
 from utils.keyboards import get_guides_kb
 from utils.screen import render_screen
+from utils.i18n import t
 
 router = Router()
 
@@ -22,19 +23,15 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
     uid = message.from_user.id
     user = await db.get_user(uid)
     args = command.args
+    # Базовая i18n (Фаза 3.4): язык клиента Telegram, с фолбэком на ru
+    lang = message.from_user.language_code if message.from_user.language_code in ("ru", "en") else "ru"
 
     if not user:
         # НОВЫЙ ПОЛЬЗОВАТЕЛЬ (Регистрация с 0 временем)
         await db.add_user(uid, message.from_user.username, message.from_user.full_name, expiry_ms=0, is_active=0)
         has_used_trial = False
 
-        welcome_text = (
-            f"👋 <b>Добро пожаловать в GTN VPN!</b>\n\n"
-            f"🎁 Вам доступен <b>бесплатный период на {TRIAL_DAYS} дня</b>.\n"
-            f"Нажмите кнопку «🎁 Получить 3 дня (Trial)» ниже, чтобы активировать его!\n\n"
-            f"⚠️ <i>Обязательно подпишитесь на Наш Канал для работы бота.</i>\n\n"
-            f"🆔 Ваш ID: <code>{uid}</code>"
-        )
+        welcome_text = t("welcome_new", lang, trial_days=TRIAL_DAYS, uid=uid)
 
         # Записываем реферала, но бонусы дадим только после активации триала
         has_referrer = False
@@ -51,17 +48,14 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
     else:
         # СТАРЫЙ ПОЛЬЗОВАТЕЛЬ
         has_used_trial = bool(user['has_used_trial']) if 'has_used_trial' in user.keys() else True
-        welcome_text = (
-            f"🚀 <b>Управление VPN подпиской GTN VPN</b>\n"
-            f"🆔 Ваш ID: <code>{uid}</code>"
-        )
+        welcome_text = t("welcome_back", lang, uid=uid)
 
     try:
         await message.delete()
     except Exception:
         pass
 
-    await message.answer(welcome_text, reply_markup=get_main_menu(has_used_trial), parse_mode="HTML")
+    await message.answer(welcome_text, reply_markup=get_main_menu(has_used_trial, lang=lang), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "get_trial")
