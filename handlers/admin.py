@@ -257,6 +257,7 @@ async def cmd_sendall(message: types.Message, command: CommandObject, db, bot: B
         try:
             await bot.send_message(chat_id=tg_id, text=command.args, parse_mode="HTML")
             success += 1
+            await db.log_event(tg_id, "broadcast_received", {})
         except TelegramForbiddenError:
             blocked += 1
             await db.set_user_inactive(tg_id) # Сразу помечаем юзера как неактивного
@@ -409,7 +410,7 @@ import re  # Убедитесь, что импорт re есть в начале
 
 
 @router.message(F.chat.id == GROUP_ID, F.reply_to_message)
-async def reply_from_admin(message: types.Message, bot: Bot):
+async def reply_from_admin(message: types.Message, bot: Bot, db):
     if message.from_user.id != ADMIN_ID:
         return
 
@@ -439,6 +440,8 @@ async def reply_from_admin(message: types.Message, bot: Bot):
             # Ставим реакцию в админ-группе, чтобы админ понял, что ответ ушел (опционально)
             await message.react([types.ReactionTypeEmoji(emoji="👍")])
 
+            await db.log_event(user_id, "support_answered", {"admin_id": ADMIN_ID})
+
         except Exception:
             await message.reply("❌ Ошибка отправки: Пользователь заблокировал бота или удален.")
 
@@ -456,8 +459,13 @@ async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
         return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("⏳ Одобряю...", show_alert=False)
 
-    # Достаем ID пользователя из callback_data (pay_yes:12345678)
-    user_id = int(callback.data.split(":")[1])
+    # Достаем ID пользователя и id pending-транзакции из callback_data
+    # (pay_yes:12345678:42). transaction_id может отсутствовать у чеков,
+    # отправленных до обновления бота — тогда падаем обратно на старое
+    # поведение (создание новой транзакции через confirm_payment).
+    parts = callback.data.split(":")
+    user_id = int(parts[1])
+    transaction_id = int(parts[2]) if len(parts) > 2 else None
 
     # ВАШИ НАСТРОЙКИ (200 руб = 30 дней)
     from config import PAYMENT_PRICE
@@ -477,8 +485,13 @@ async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
         if not marzban_res or not marzban_res.get("success"):
             await panel.add_user(INBOUND_ID, None, str(user_id), new_expiry)
 
-        # Записываем транзакцию в БД
-        await db.confirm_payment(user_id, PAYMENT_PRICE, new_expiry)
+        # Записываем транзакцию в БД: если есть pending-транзакция — обновляем
+        # именно её (payment_created -> payment_approved), иначе создаём новую
+        if transaction_id:
+            await db.approve_pending_transaction(transaction_id, user_id, PAYMENT_PRICE, new_expiry, ADMIN_ID)
+        else:
+            await db.confirm_payment(user_id, PAYMENT_PRICE, new_expiry)
+        await db.log_event(user_id, "payment_approved", {"amount": PAYMENT_PRICE, "approved_by": ADMIN_ID})
 
         # Обновляем сообщение в админ-чате
         try:
@@ -504,11 +517,17 @@ async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
 
 
 @router.callback_query(F.data.startswith("pay_no:"))
-async def reject_payment(callback: types.CallbackQuery, bot: Bot):
+async def reject_payment(callback: types.CallbackQuery, db, bot: Bot):
     if callback.from_user.id != ADMIN_ID:
         return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("Отклонено", show_alert=False)
-    user_id = int(callback.data.split(":")[1])
+    parts = callback.data.split(":")
+    user_id = int(parts[1])
+    transaction_id = int(parts[2]) if len(parts) > 2 else None
+
+    if transaction_id:
+        await db.reject_pending_transaction(transaction_id)
+    await db.log_event(user_id, "payment_rejected", {})
 
     # Обновляем сообщение в админ-чате
     try:

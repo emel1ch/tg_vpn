@@ -1,4 +1,5 @@
 import aiosqlite
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime
 import time
@@ -72,6 +73,43 @@ class Database:
                 await db.execute("ALTER TABLE users ADD COLUMN referrals_count INTEGER DEFAULT 0")
             except Exception:
                 pass
+
+            # --- АНАЛИТИЧЕСКАЯ СХЕМА (Фаза 2) ---
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tg_id INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload TEXT,
+                    ts_ms INTEGER NOT NULL
+                )
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_events_tg_id ON events(tg_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(event_type, ts_ms)")
+
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS referral_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    referrer_id INTEGER NOT NULL,
+                    referee_id INTEGER NOT NULL,
+                    ts_ms INTEGER NOT NULL,
+                    bonus_days INTEGER DEFAULT 0
+                )
+            """)
+
+            transactions_columns = [
+                "method TEXT",
+                "currency TEXT",
+                "status TEXT DEFAULT 'approved'",
+                "approved_by INTEGER",
+                "created_ts_ms INTEGER",
+                "decided_ts_ms INTEGER",
+            ]
+            for col in transactions_columns:
+                try:
+                    await db.execute(f"ALTER TABLE transactions ADD COLUMN {col}")
+                except Exception:
+                    pass
 
             await db.commit()
 
@@ -177,8 +215,69 @@ class Database:
         """Тихо обновляет данные пользователя при синхронизации с панелью"""
         async with aiosqlite.connect(self.db_file) as db:
             await db.execute("""
-                UPDATE users 
-                SET expiry_ms = ?, is_active = ?, sub_id = ? 
+                UPDATE users
+                SET expiry_ms = ?, is_active = ?, sub_id = ?
                 WHERE tg_id = ?
             """, (expiry_ms, is_active, sub_id, tg_id))
+            await db.commit()
+
+    # ========================================================
+    # АНАЛИТИКА (Фаза 2)
+    # ========================================================
+
+    async def log_event(self, tg_id: int, event_type: str, payload: dict | None = None):
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute(
+                "INSERT INTO events (tg_id, event_type, payload, ts_ms) VALUES (?, ?, ?, ?)",
+                (tg_id, event_type, json.dumps(payload or {}, ensure_ascii=False), int(time.time() * 1000))
+            )
+            await db.commit()
+
+    async def log_referral_event(self, referrer_id: int, referee_id: int, bonus_days: int = 0):
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute(
+                "INSERT INTO referral_events (referrer_id, referee_id, ts_ms, bonus_days) VALUES (?, ?, ?, ?)",
+                (referrer_id, referee_id, int(time.time() * 1000), bonus_days)
+            )
+            await db.commit()
+
+    async def get_events(self, since_ts_ms: int):
+        async with aiosqlite.connect(self.db_file) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                    "SELECT tg_id, event_type, payload, ts_ms FROM events WHERE ts_ms >= ? ORDER BY ts_ms DESC",
+                    (since_ts_ms,)) as cursor:
+                return await cursor.fetchall()
+
+    # --- Привязка транзакции к платежу: payment_created создаёт запись со
+    # status='pending', payment_approved/payment_rejected обновляют эту же
+    # запись (а не создают новую) — чтобы считать конверсию pending -> approved
+    # по одной и той же транзакции. ---
+
+    async def create_pending_transaction(self, tg_id: int, method: str | None = None, currency: str | None = None) -> int:
+        async with aiosqlite.connect(self.db_file) as db:
+            cursor = await db.execute(
+                "INSERT INTO transactions (tg_id, amount, pay_date, method, currency, status, created_ts_ms) "
+                "VALUES (?, 0, ?, ?, ?, 'pending', ?)",
+                (tg_id, datetime.now().strftime('%d.%m.%Y %H:%M'), method, currency, int(time.time() * 1000))
+            )
+            await db.commit()
+            return cursor.lastrowid
+
+    async def approve_pending_transaction(self, transaction_id: int, tg_id: int, amount: int, new_expiry_ms: int, approved_by: int):
+        current_date = datetime.now().strftime('%d.%m.%Y %H:%M')
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute(
+                "UPDATE users SET expiry_ms = ?, is_active = 1, total_paid = total_paid + ?, lapsed_reminder_stage = 0 WHERE tg_id = ?",
+                (new_expiry_ms, amount, tg_id))
+            await db.execute(
+                "UPDATE transactions SET amount = ?, pay_date = ?, status = 'approved', approved_by = ?, decided_ts_ms = ? WHERE id = ?",
+                (amount, current_date, approved_by, int(time.time() * 1000), transaction_id))
+            await db.commit()
+
+    async def reject_pending_transaction(self, transaction_id: int):
+        async with aiosqlite.connect(self.db_file) as db:
+            await db.execute(
+                "UPDATE transactions SET status = 'rejected', decided_ts_ms = ? WHERE id = ?",
+                (int(time.time() * 1000), transaction_id))
             await db.commit()
