@@ -1,0 +1,12 @@
+{
+    "welcome_new": "👋 <b>Welcome to GTN VPN!</b>\n\n🎁 You have a <b>free {trial_days}-day trial</b> available.\nTap «🎁 Get 3 days (Trial)» below to activate it!\n\n⚠️ <i>Make sure to subscribe to our channel for the bot to work.</i>\n\n🆔 Your ID: <code>{uid}</code>",
+    "welcome_back": "🚀 <b>GTN VPN subscription management</b>\n🆔 Your ID: <code>{uid}</code>",
+    "menu.trial": "🎁 Get 3 days (Trial)",
+    "menu.payment": "💳 Payment",
+    "menu.guides": "📚 Guides",
+    "menu.status": "📊 Status (Subscription)",
+    "menu.history": "📜 Transactions",
+    "menu.support": "🆘 Support",
+    "menu.referral": "💌 Invite a friend (Bonus)",
+    "menu.channel": "📢 Our Channel"
+}

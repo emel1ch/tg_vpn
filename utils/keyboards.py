@@ -1,27 +1,28 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from config import CHANNEL_URL, GUIDES
+from utils.i18n import t
 
 
-def get_main_menu(has_used_trial=True):  # Добавили аргумент
+def get_main_menu(has_used_trial=True, lang="ru"):  # Добавили аргумент
     builder = InlineKeyboardBuilder()
 
     # Если триал еще не использован, показываем кнопку в самом верху
     if not has_used_trial:
-        builder.row(InlineKeyboardButton(text="🎁 Получить 3 дня (Trial)", callback_data="get_trial"))
+        builder.row(InlineKeyboardButton(text=t("menu.trial", lang), callback_data="get_trial"))
 
-    builder.row(InlineKeyboardButton(text="💳 Оплата", callback_data="renew"))
+    builder.row(InlineKeyboardButton(text=t("menu.payment", lang), callback_data="renew"))
     builder.row(
-        InlineKeyboardButton(text="📚 Инструкции", callback_data="guides"),
-        InlineKeyboardButton(text="📊 Статус (Подписка)", callback_data="status")
+        InlineKeyboardButton(text=t("menu.guides", lang), callback_data="guides"),
+        InlineKeyboardButton(text=t("menu.status", lang), callback_data="status")
     )
     builder.row(
-        InlineKeyboardButton(text="📜 Транзакции", callback_data="history"),
-        InlineKeyboardButton(text="🆘 Поддержка", callback_data="support")
+        InlineKeyboardButton(text=t("menu.history", lang), callback_data="history"),
+        InlineKeyboardButton(text=t("menu.support", lang), callback_data="support")
     )
-    builder.row(InlineKeyboardButton(text="💌 Пригласить друга (Бонус)", callback_data="referral_menu"))
+    builder.row(InlineKeyboardButton(text=t("menu.referral", lang), callback_data="referral_menu"))
     # Новая кнопка канала
-    builder.row(InlineKeyboardButton(text="📢 Наш Канал", url=CHANNEL_URL))
+    builder.row(InlineKeyboardButton(text=t("menu.channel", lang), url=CHANNEL_URL))
 
     return builder.as_markup()
 

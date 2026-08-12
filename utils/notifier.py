@@ -57,27 +57,22 @@ async def check_expiring_subs(bot: Bot, db: Database,panel):
                 # Сколько времени осталось (в миллисекундах)
                 time_left_ms = expiry_ms - now_ms
 
-                # Ловим промежутки для уведомлений
-                # Чтобы не спамить, мы отправляем уведомление только если остаток попал
-                # в "окно" (например, от 71 до 72 часов = 3 дня)
-                # Поскольку цикл крутится раз в час, мы берем окно в 1.5 часа (1.5 * 3600 * 1000 = 5400000 мс)
-
-                WINDOW = 5400000  # 1.5 часа
-
+                # Персистентный флаг вместо "окна" по таймингу цикла: раньше
+                # уведомление отправлялось только если остаток попал в узкое
+                # окно (1.5 часа при часовом цикле) — легко проскакивало при
+                # рестарте бота. Теперь просто сравниваем с последней
+                # отправленной стадией, независимо от точности cron-окна.
                 days_left = None
-
-                # Проверка за 3 дня
-                if (3 * ONE_DAY) <= time_left_ms < (3 * ONE_DAY + WINDOW):
+                if time_left_ms <= 3 * ONE_DAY:
                     days_left = 3
-                # Проверка за 2 дня
-                elif (2 * ONE_DAY) <= time_left_ms < (2 * ONE_DAY + WINDOW):
+                if time_left_ms <= 2 * ONE_DAY:
                     days_left = 2
-                # Проверка за 1 день (24 часа)
-                elif (1 * ONE_DAY) <= time_left_ms < (1 * ONE_DAY + WINDOW):
+                if time_left_ms <= 1 * ONE_DAY:
                     days_left = 1
 
-                # Если пора отправлять уведомление
-                if days_left is not None:
+                last_notified = user['last_expiry_notify_days'] if 'last_expiry_notify_days' in user.keys() else None
+
+                if days_left is not None and last_notified != days_left:
                     try:
                         await bot.send_message(
                             tg_id,
@@ -90,6 +85,10 @@ async def check_expiring_subs(bot: Bot, db: Database,panel):
                     except Exception:
                         # Юзер заблокировал бота
                         pass
+                    finally:
+                        # Помечаем стадию отправленной в любом случае (в т.ч. если
+                        # юзер заблокировал бота) — иначе будем пытаться на каждом цикле
+                        await db.update_expiry_notify_stage(tg_id, days_left)
 
                 await asyncio.sleep(0.05)  # Защита от лимитов телеграма
 
