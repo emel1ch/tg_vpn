@@ -36,13 +36,17 @@ async def cmd_start(message: types.Message, command: CommandObject, state: FSMCo
         )
 
         # Записываем реферала, но бонусы дадим только после активации триала
+        has_referrer = False
         if args and args.startswith("ref"):
             try:
                 referrer_id = int(args.replace("ref", ""))
                 if referrer_id != uid and await db.get_user(referrer_id):
                     await db.update_referrer(uid, referrer_id)
+                    has_referrer = True
             except ValueError:
                 pass
+
+        await db.log_event(uid, "registered", {"has_referrer": has_referrer})
     else:
         # СТАРЫЙ ПОЛЬЗОВАТЕЛЬ
         has_used_trial = bool(user['has_used_trial']) if 'has_used_trial' in user.keys() else True
@@ -86,6 +90,8 @@ async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
         if sub_url:
             await db.set_user_keys(uid, str(uid), sub_url)
 
+    await db.log_event(uid, "trial_activated", {})
+
     # ЛОГИКА РЕФЕРАЛОВ (срабатывает только сейчас)
     if user['referrer_id']:
         ref_id = user['referrer_id']
@@ -107,7 +113,10 @@ async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
 
         if refs_count < ref_limit:
             refs_count = await db.add_referral_count(ref_id)
-            if refs_count % 2 == 0:
+            bonus_triggered = refs_count % 2 == 0
+            await db.log_referral_event(ref_id, uid, bonus_days=14 if bonus_triggered else 0)
+
+            if bonus_triggered:
                 curr_exp = ref_user['expiry_ms'] if ref_user['expiry_ms'] > now_ms else now_ms
                 new_exp = curr_exp + (14 * 24 * 60 * 60 * 1000)
                 await db.confirm_payment(ref_id, 0, new_exp)
@@ -214,8 +223,9 @@ async def support_init(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.message(SupportState.waiting_for_msg)
-async def forward_support(message: types.Message, state: FSMContext, bot: Bot):
+async def forward_support(message: types.Message, state: FSMContext, bot: Bot, db):
     await state.clear()
+    await db.log_event(message.from_user.id, "support_ticket", {})
 
     # Формируем подпись (теперь она будет внутри сообщения юзера)
     # Маркер ||UID:...|| в конце текста, а не "ID: 123" — иначе пользователь мог

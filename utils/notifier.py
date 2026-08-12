@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 from aiogram import Bot
 from database import Database, get_db_connection
@@ -41,6 +42,7 @@ async def check_expiring_subs(bot: Bot, db: Database,panel):
 
                     # Если и в панели пусто/истекло, тогда честно отключаем
                     await db.set_user_inactive(tg_id)
+                    await db.log_event(tg_id, "sub_expired", {})
                     try:
                         await bot.send_message(
                             tg_id,
@@ -84,6 +86,7 @@ async def check_expiring_subs(bot: Bot, db: Database,panel):
                             f"👉 Для продления нажмите «💳 Оплата» в /menu",
                             parse_mode="HTML"
                         )
+                        await db.log_event(tg_id, "reminder_sent", {"stage": days_left, "type": "expiry"})
                     except Exception:
                         # Юзер заблокировал бота
                         pass
@@ -125,6 +128,18 @@ LAPSED_TEXTS = [
 ]
 
 
+async def _log_event(conn: aiosqlite.Connection, tg_id: int, event_type: str, payload: dict):
+    """
+    То же самое, что Database.log_event, но пишет через уже открытое
+    соединение start_reminder_loop — открывать отдельное соединение на
+    каждое напоминание было бы избыточно.
+    """
+    await conn.execute(
+        "INSERT INTO events (tg_id, event_type, payload, ts_ms) VALUES (?, ?, ?, ?)",
+        (tg_id, event_type, json.dumps(payload, ensure_ascii=False), int(time.time() * 1000))
+    )
+
+
 async def start_reminder_loop(bot: Bot, db_path: str):
     """Фоновая задача для рассылки дожимов"""
     while True:
@@ -145,6 +160,7 @@ async def start_reminder_loop(bot: Bot, db_path: str):
                     if now_ms >= target_time:
                         try:
                             await bot.send_message(row['tg_id'], TRIAL_TEXTS[stage])
+                            await _log_event(db, row['tg_id'], "reminder_sent", {"stage": stage, "type": "trial"})
                         except Exception:
                             pass  # Заблокировал бота
                         # Переводим на следующую стадию даже если заблокировал (чтобы не спамить ошибки)
@@ -166,6 +182,7 @@ async def start_reminder_loop(bot: Bot, db_path: str):
                     if now_ms >= target_time:
                         try:
                             await bot.send_message(row['tg_id'], LAPSED_TEXTS[stage])
+                            await _log_event(db, row['tg_id'], "reminder_sent", {"stage": stage, "type": "lapsed"})
                         except Exception:
                             pass
                         await db.execute("UPDATE users SET lapsed_reminder_stage = ? WHERE tg_id = ?",

@@ -38,6 +38,7 @@ async def choose_payment_method(callback: types.CallbackQuery, state: FSMContext
 @router.callback_query(F.data == "pay_sbp")
 async def pay_via_sbp(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(PaymentState.waiting_for_check)
+    await state.update_data(method="sbp")
     await callback.answer()
     kb = InlineKeyboardBuilder()
     kb.button(text="🔗 Оплатить по ссылке", url=PAYMENT_LINK)
@@ -80,6 +81,7 @@ async def pay_crypto_direct(callback: types.CallbackQuery, state: FSMContext):
 
     # Достаем название монеты/сети из callback (например, USDT_TRC20)
     coin_network = callback.data.split(":")[1]
+    await state.update_data(method=f"crypto_{coin_network.lower()}")
 
     wallet = CRYPTO_WALLETS.get(coin_network, "Кошелек не настроен")
     qr_filename = CRYPTO_QRS.get(coin_network, "qr.jpg")  # Берем имя файла из конфига
@@ -114,14 +116,19 @@ async def pay_crypto_direct(callback: types.CallbackQuery, state: FSMContext):
 
 # 6. Обработка любого присланного чека (СБП или Крипта)
 @router.message(PaymentState.waiting_for_check, F.photo)
-async def handle_payment_photo(message: types.Message, state: FSMContext, bot: Bot):
+async def handle_payment_photo(message: types.Message, state: FSMContext, bot: Bot, db):
+    data = await state.get_data()
+    method = data.get("method", "unknown")
     await state.clear()
 
+    transaction_id = await db.create_pending_transaction(message.from_user.id, method=method)
+    await db.log_event(message.from_user.id, "payment_created", {"method": method})
 
-    # Кнопки для админа
+    # Кнопки для админа (transaction_id нужен, чтобы approve/reject обновляли
+    # именно эту pending-транзакцию, а не создавали новую)
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Одобрить", callback_data=f"pay_yes:{message.from_user.id}")
-    builder.button(text="❌ Отказать", callback_data=f"pay_no:{message.from_user.id}")
+    builder.button(text="✅ Одобрить", callback_data=f"pay_yes:{message.from_user.id}:{transaction_id}")
+    builder.button(text="❌ Отказать", callback_data=f"pay_no:{message.from_user.id}:{transaction_id}")
 
     await bot.send_photo(
         GROUP_ID,
