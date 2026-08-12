@@ -18,6 +18,8 @@ REMOTE_GDRIVE = os.getenv("REMOTE_GDRIVE") # Оставляем Google Drive
 MARZBAN_DB_PATH = os.getenv("MARZBAN_DB_PATH", "/opt/marzban/data/db.sqlite3")
 # Путь к локальной базе бота (как в migration.py)
 BOT_DB_PATH = os.getenv("BOT_DB_PATH", "vpn_service.db")
+# Пароль для шифрования бэкапов (gpg --symmetric) перед отправкой в TG/GDrive
+BACKUP_GPG_PASSPHRASE = os.getenv("BACKUP_GPG_PASSPHRASE")
 
 # Настройки времени и цен
 INBOUND_ID = 1

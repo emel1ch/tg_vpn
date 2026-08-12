@@ -11,7 +11,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 import openpyxl
 from openpyxl.styles import Font
 from io import BytesIO
-from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
+from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID, BACKUP_GPG_PASSPHRASE
 
 router = Router()
 
@@ -154,33 +154,56 @@ async def handle_backup(callback: types.CallbackQuery, bot: Bot):
         tasks = [(MARZBAN_DB_PATH, f"marzban_{date_str}.sqlite", "📦 БД Marzban"),
                  (BOT_DB_PATH, f"vpn_service_{date_str}.db", "🤖 БД Telegram-бота")]
 
-        for src, dest_name, caption in tasks:
-            if os.path.exists(src):
-                # Telegram
-                try:
-                    await bot.send_document(ADMIN_ID, FSInputFile(src), caption=caption)
-                    status_tg.append("✅")
-                except Exception:
-                    status_tg.append("❌")
+        if not BACKUP_GPG_PASSPHRASE:
+            subprocess.run(['rm', '-rf', temp_dir])
+            await callback.message.edit_text(
+                "❌ <b>Бэкап отменён:</b> не задан BACKUP_GPG_PASSPHRASE.\n"
+                "Базы содержат платежи и Telegram ID — отправлять их без шифрования нельзя.",
+                parse_mode="HTML", reply_markup=get_admin_kb())
+            return
 
-                # GDrive
-                if REMOTE_GDRIVE:
-                    try:
-                        tmp_file = os.path.join(temp_dir, dest_name)
-                        subprocess.run(['cp', src, tmp_file])
-                        subprocess.run(['rclone', 'copyto', tmp_file, f"{REMOTE_GDRIVE}/background/{dest_name}"],
-                                       check=True)
-                        status_drive.append("✅")
-                    except Exception:
-                        status_drive.append("❌")
-                else:
-                    status_drive.append("⚠️")
-            else:
+        for src, dest_name, caption in tasks:
+            if not os.path.exists(src):
                 status_tg.append("⚪️")
                 status_drive.append("⚪️")
+                continue
+
+            # Шифруем перед отправкой (в TG/GDrive должны улетать только .gpg файлы,
+            # исходники содержат платежи и Telegram ID)
+            encrypted_name = f"{dest_name}.gpg"
+            encrypted_path = os.path.join(temp_dir, encrypted_name)
+            try:
+                subprocess.run(
+                    ['gpg', '--symmetric', '--batch', '--yes',
+                     '--passphrase', BACKUP_GPG_PASSPHRASE,
+                     '--output', encrypted_path, src],
+                    check=True)
+            except Exception:
+                status_tg.append("❌")
+                status_drive.append("❌")
+                continue
+
+            # Telegram
+            try:
+                await bot.send_document(ADMIN_ID, FSInputFile(encrypted_path, filename=encrypted_name),
+                                        caption=f"{caption} (зашифровано GPG)")
+                status_tg.append("✅")
+            except Exception:
+                status_tg.append("❌")
+
+            # GDrive
+            if REMOTE_GDRIVE:
+                try:
+                    subprocess.run(['rclone', 'copyto', encrypted_path, f"{REMOTE_GDRIVE}/background/{encrypted_name}"],
+                                   check=True)
+                    status_drive.append("✅")
+                except Exception:
+                    status_drive.append("❌")
+            else:
+                status_drive.append("⚠️")
 
         subprocess.run(['rm', '-rf', temp_dir])
-        report = f"📦 <b>Бэкап:</b>\nTG: Marzban {status_tg[0]} | Бот {status_tg[1]}\nDrive: Marzban {status_drive[0]} | Бот {status_drive[1]}"
+        report = f"📦 <b>Бэкап (GPG-шифрование):</b>\nTG: Marzban {status_tg[0]} | Бот {status_tg[1]}\nDrive: Marzban {status_drive[0]} | Бот {status_drive[1]}"
         await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
     except Exception as e:
         await bot.send_message(ADMIN_ID, f"❌ Критическая ошибка бэкапов: {e}")
