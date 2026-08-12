@@ -218,7 +218,9 @@ async def forward_support(message: types.Message, state: FSMContext, bot: Bot):
     await state.clear()
 
     # Формируем подпись (теперь она будет внутри сообщения юзера)
-    user_info = f"\n\n---\n🆘 Запрос от @{message.from_user.username or 'скрыт'}\n🆔 ID: <code>{message.from_user.id}</code>"
+    # Маркер ||UID:...|| в конце текста, а не "ID: 123" — иначе пользователь мог
+    # вписать в свой текст поддельный "ID: 999" и подменить получателя ответа.
+    user_info = f"\n\n---\n🆘 Запрос от @{message.from_user.username or 'скрыт'}\n☝️||UID:{message.from_user.id}||"
 
     # Пересылаем сообщение в группу с добавленной подписью (работает и для текста, и для фото)
     if message.text:
@@ -227,9 +229,9 @@ async def forward_support(message: types.Message, state: FSMContext, bot: Bot):
         caption = message.caption if message.caption else ""
         await bot.send_photo(GROUP_ID, message.photo[-1].file_id, caption=f"{caption}{user_info}", parse_mode="HTML")
     else:
-        # Для стикеров, голосовых и т.д. просто пересылаем, а потом шлем ID ответом на него
+        # Для стикеров, голосовых и т.д. просто пересылаем, а потом шлем маркер ответом на него
         sent_msg = await message.copy_to(GROUP_ID)
-        await bot.send_message(GROUP_ID, f"☝️ ID: <code>{message.from_user.id}</code>",
+        await bot.send_message(GROUP_ID, f"☝️||UID:{message.from_user.id}||",
                                reply_to_message_id=sent_msg.message_id, parse_mode="HTML")
 
     await message.answer("✅ Твой вопрос передан админу. Ожидай ответа прямо здесь.", reply_markup=get_main_menu())

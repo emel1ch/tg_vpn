@@ -1,6 +1,22 @@
 import aiosqlite
+from contextlib import asynccontextmanager
 from datetime import datetime
 import time
+
+
+@asynccontextmanager
+async def get_db_connection(db_file: str):
+    """
+    Соединение с уже настроенными PRAGMA (WAL, busy_timeout). Использовать
+    в местах с длинными фоновыми циклами (notifier.py и т.п.), где несколько
+    запросов идут через одно и то же соединение и риск "database is locked"
+    выше, чем у коротких точечных запросов в методах Database.
+    """
+    async with aiosqlite.connect(db_file) as conn:
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA busy_timeout=5000")
+        yield conn
+
 
 class Database:
     def __init__(self, db_file):
@@ -8,6 +24,8 @@ class Database:
 
     async def create_tables(self):
         async with aiosqlite.connect(self.db_file) as db:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA busy_timeout=5000")
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     tg_id INTEGER PRIMARY KEY,

@@ -3,14 +3,21 @@ import subprocess
 import asyncio
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command, CommandObject
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, BufferedInputFile
 from aiogram.exceptions import TelegramForbiddenError
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 import openpyxl
 from openpyxl.styles import Font
 from io import BytesIO
-from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
+from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID, BACKUP_GPG_PASSPHRASE
 
 router = Router()
+
+
+class ConfirmState(StatesGroup):
+    waiting_confirm = State()
 
 
 # ==========================================
@@ -147,33 +154,56 @@ async def handle_backup(callback: types.CallbackQuery, bot: Bot):
         tasks = [(MARZBAN_DB_PATH, f"marzban_{date_str}.sqlite", "📦 БД Marzban"),
                  (BOT_DB_PATH, f"vpn_service_{date_str}.db", "🤖 БД Telegram-бота")]
 
-        for src, dest_name, caption in tasks:
-            if os.path.exists(src):
-                # Telegram
-                try:
-                    await bot.send_document(ADMIN_ID, FSInputFile(src), caption=caption)
-                    status_tg.append("✅")
-                except Exception:
-                    status_tg.append("❌")
+        if not BACKUP_GPG_PASSPHRASE:
+            subprocess.run(['rm', '-rf', temp_dir])
+            await callback.message.edit_text(
+                "❌ <b>Бэкап отменён:</b> не задан BACKUP_GPG_PASSPHRASE.\n"
+                "Базы содержат платежи и Telegram ID — отправлять их без шифрования нельзя.",
+                parse_mode="HTML", reply_markup=get_admin_kb())
+            return
 
-                # GDrive
-                if REMOTE_GDRIVE:
-                    try:
-                        tmp_file = os.path.join(temp_dir, dest_name)
-                        subprocess.run(['cp', src, tmp_file])
-                        subprocess.run(['rclone', 'copyto', tmp_file, f"{REMOTE_GDRIVE}/background/{dest_name}"],
-                                       check=True)
-                        status_drive.append("✅")
-                    except Exception:
-                        status_drive.append("❌")
-                else:
-                    status_drive.append("⚠️")
-            else:
+        for src, dest_name, caption in tasks:
+            if not os.path.exists(src):
                 status_tg.append("⚪️")
                 status_drive.append("⚪️")
+                continue
+
+            # Шифруем перед отправкой (в TG/GDrive должны улетать только .gpg файлы,
+            # исходники содержат платежи и Telegram ID)
+            encrypted_name = f"{dest_name}.gpg"
+            encrypted_path = os.path.join(temp_dir, encrypted_name)
+            try:
+                subprocess.run(
+                    ['gpg', '--symmetric', '--batch', '--yes',
+                     '--passphrase', BACKUP_GPG_PASSPHRASE,
+                     '--output', encrypted_path, src],
+                    check=True)
+            except Exception:
+                status_tg.append("❌")
+                status_drive.append("❌")
+                continue
+
+            # Telegram
+            try:
+                await bot.send_document(ADMIN_ID, FSInputFile(encrypted_path, filename=encrypted_name),
+                                        caption=f"{caption} (зашифровано GPG)")
+                status_tg.append("✅")
+            except Exception:
+                status_tg.append("❌")
+
+            # GDrive
+            if REMOTE_GDRIVE:
+                try:
+                    subprocess.run(['rclone', 'copyto', encrypted_path, f"{REMOTE_GDRIVE}/background/{encrypted_name}"],
+                                   check=True)
+                    status_drive.append("✅")
+                except Exception:
+                    status_drive.append("❌")
+            else:
+                status_drive.append("⚠️")
 
         subprocess.run(['rm', '-rf', temp_dir])
-        report = f"📦 <b>Бэкап:</b>\nTG: Marzban {status_tg[0]} | Бот {status_tg[1]}\nDrive: Marzban {status_drive[0]} | Бот {status_drive[1]}"
+        report = f"📦 <b>Бэкап (GPG-шифрование):</b>\nTG: Marzban {status_tg[0]} | Бот {status_tg[1]}\nDrive: Marzban {status_drive[0]} | Бот {status_drive[1]}"
         await callback.message.edit_text(report, parse_mode="HTML", reply_markup=get_admin_kb())
     except Exception as e:
         await bot.send_message(ADMIN_ID, f"❌ Критическая ошибка бэкапов: {e}")
@@ -300,20 +330,30 @@ from datetime import datetime
 
 
 @router.message(Command("promo_may2"))
-async def cmd_promo_may2(message: types.Message, db, panel, bot: Bot):
+async def cmd_promo_may2(message: types.Message, db, state: FSMContext):
     if message.from_user.id != ADMIN_ID: return
-
-    # Задаем жесткую дату: 2 мая 2026 года, 23:59:59
-    target_date = datetime(2026, 5, 3, 23, 59, 59)
-    target_ms = int(target_date.timestamp() * 1000)
 
     users = await db.get_all_users()
     if not users:
         return await message.reply("❌ База пуста.")
 
-    msg = await message.answer(
-        f"⏳ <b>Начинаю обновление...</b>\nСтавлю всем срок до 2 мая. Юзеров в базе: {len(users)}", parse_mode="HTML")
+    await state.update_data(action="promo_may2")
+    await state.set_state(ConfirmState.waiting_confirm)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data="confirm_bulk_yes")
+    kb.button(text="❌ Отмена", callback_data="confirm_bulk_no")
+    await message.answer(
+        f"⚠️ Вы собираетесь выставить <b>всем</b> пользователям (<b>{len(users)} чел.</b>) срок подписки "
+        f"ровно до 2 мая 2026 года.\nПодтвердите действие:",
+        reply_markup=kb.adjust(2).as_markup(), parse_mode="HTML")
 
+
+async def _execute_promo_may2(db, panel) -> int:
+    # Задаем жесткую дату: 2 мая 2026 года, 23:59:59
+    target_date = datetime(2026, 5, 3, 23, 59, 59)
+    target_ms = int(target_date.timestamp() * 1000)
+
+    users = await db.get_all_users()
     success = 0
     for tg_id in users:
         try:
@@ -335,9 +375,7 @@ async def cmd_promo_may2(message: types.Message, db, panel, bot: Bot):
 
         await asyncio.sleep(0.05)  # Защита от лимитов API
 
-    await msg.edit_text(
-        f"✅ <b>Готово!</b>\nСрок подписки для {success} пользователей успешно установлен ровно до 2 мая 2026 года.",
-        parse_mode="HTML")
+    return success
 
 
 @router.message(Command("revoke_sub"))
@@ -372,14 +410,18 @@ import re  # Убедитесь, что импорт re есть в начале
 
 @router.message(F.chat.id == GROUP_ID, F.reply_to_message)
 async def reply_from_admin(message: types.Message, bot: Bot):
+    if message.from_user.id != ADMIN_ID:
+        return
+
     # Берем текст оригинального сообщения, на которое отвечает админ
     original_text = message.reply_to_message.text or message.reply_to_message.caption
 
     if not original_text:
         return  # Если оригинальное сообщение было стикером или войсом без подписи
 
-    # Ищем в тексте строку "ID: 12345678"
-    match = re.search(r"ID:\s*(\d+)", original_text)
+    # Маркер ||UID:...|| строго в конце текста — его нельзя подделать содержимым
+    # самого обращения (в отличие от старого поиска "ID: 123" где угодно в тексте).
+    match = re.search(r"\|\|UID:(\d+)\|\|$", original_text.strip())
 
     if match:
         user_id = int(match.group(1))
@@ -410,6 +452,8 @@ from aiogram.exceptions import TelegramBadRequest
 # ==========================================
 @router.callback_query(F.data.startswith("pay_yes:"))
 async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("⏳ Одобряю...", show_alert=False)
 
     # Достаем ID пользователя из callback_data (pay_yes:12345678)
@@ -461,6 +505,8 @@ async def approve_payment(callback: types.CallbackQuery, db, panel, bot: Bot):
 
 @router.callback_query(F.data.startswith("pay_no:"))
 async def reject_payment(callback: types.CallbackQuery, bot: Bot):
+    if callback.from_user.id != ADMIN_ID:
+        return await callback.answer("⛔ Недостаточно прав", show_alert=True)
     await callback.answer("Отклонено", show_alert=False)
     user_id = int(callback.data.split(":")[1])
 
@@ -495,7 +541,7 @@ async def export_excel_command(message: types.Message, db, panel):  # <--- До�
     marzban_data = await panel.get_all_users()
     if marzban_data and 'users' in marzban_data:
         for m_user in marzban_data['users']:
-            if m_user.get('username').isdigit():
+            if (m_user.get('username') or '').isdigit():
                 tg_id = int(m_user.get('username'))
                 expiry_ms = m_user.get('expire', 0) * 1000
                 is_active = 1 if m_user.get('status') == 'active' else 0
@@ -595,7 +641,7 @@ async def cmd_sync_users(message: types.Message, db, panel):
     skipped_count = 0
 
     for m_user in marzban_data['users']:
-        m_username = m_user.get('username')
+        m_username = m_user.get('username') or ''
 
         if not m_username.isdigit():
             skipped_count += 1
@@ -668,7 +714,7 @@ async def cmd_set_sub(message: types.Message, command: CommandObject, db, panel)
 
 
 @router.message(Command("give_all"))
-async def cmd_give_all(message: types.Message, command: CommandObject, db, panel, bot: Bot):
+async def cmd_give_all(message: types.Message, command: CommandObject, db, state: FSMContext):
     # Защита от чужих
     if message.from_user.id != ADMIN_ID:
         return
@@ -678,10 +724,22 @@ async def cmd_give_all(message: types.Message, command: CommandObject, db, panel
         return await message.answer("⚠️ Использование: <code>/give_all количество_дней</code>", parse_mode="HTML")
 
     days = int(args)
+    users_count = len(await db.get_all_users())
+
+    await state.update_data(action="give_all", days=days)
+    await state.set_state(ConfirmState.waiting_confirm)
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data="confirm_bulk_yes")
+    kb.button(text="❌ Отмена", callback_data="confirm_bulk_no")
+    await message.answer(
+        f"⚠️ Вы собираетесь выдать <b>{days} дней</b> всем пользователям (<b>{users_count} чел.</b>).\n"
+        f"Подтвердите действие:",
+        reply_markup=kb.adjust(2).as_markup(), parse_mode="HTML")
+
+
+async def _execute_give_all(bot: Bot, db, panel, days: int) -> int:
     added_ms = days * 24 * 60 * 60 * 1000
     now_ms = int(time.time() * 1000)
-
-    msg = await message.answer(f"⏳ Начинаю выдачу {days} дней всем пользователям...")
 
     import aiosqlite
     success_count = 0
@@ -717,5 +775,35 @@ async def cmd_give_all(message: types.Message, command: CommandObject, db, panel
                 except Exception:
                     pass  # Пользователь мог заблокировать бота
 
-    await msg.edit_text(f"✅ Успешно!\nВыдано <b>{days} дней</b>.\nОповещено пользователей: <b>{success_count}</b>",
-                        parse_mode="HTML")
+    return success_count
+
+
+@router.callback_query(F.data == "confirm_bulk_yes", ConfirmState.waiting_confirm)
+async def confirm_bulk_execute(callback: types.CallbackQuery, state: FSMContext, db, panel, bot: Bot):
+    if callback.from_user.id != ADMIN_ID:
+        return
+
+    data = await state.get_data()
+    await state.clear()
+    action = data.get("action")
+    await callback.message.edit_text("⏳ Выполняю...")
+
+    if action == "give_all":
+        days = data["days"]
+        success_count = await _execute_give_all(bot, db, panel, days)
+        await callback.message.edit_text(
+            f"✅ Успешно!\nВыдано <b>{days} дней</b>.\nОповещено пользователей: <b>{success_count}</b>",
+            parse_mode="HTML")
+    elif action == "promo_may2":
+        success_count = await _execute_promo_may2(db, panel)
+        await callback.message.edit_text(
+            f"✅ <b>Готово!</b>\nСрок подписки для {success_count} пользователей успешно установлен ровно до 2 мая 2026 года.",
+            parse_mode="HTML")
+
+
+@router.callback_query(F.data == "confirm_bulk_no", ConfirmState.waiting_confirm)
+async def confirm_bulk_cancel(callback: types.CallbackQuery, state: FSMContext):
+    if callback.from_user.id != ADMIN_ID:
+        return
+    await state.clear()
+    await callback.message.edit_text("❌ Отменено.")

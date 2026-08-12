@@ -1,7 +1,7 @@
 import asyncio
 import time
 from aiogram import Bot
-from database import Database
+from database import Database, get_db_connection
 import aiosqlite
 
 
@@ -130,7 +130,7 @@ async def start_reminder_loop(bot: Bot, db_path: str):
     while True:
         now_ms = int(time.time() * 1000)
 
-        async with aiosqlite.connect(db_path) as db:
+        async with get_db_connection(db_path) as db:
             db.row_factory = aiosqlite.Row
 
             # 1. ВОРОНКА ТРИАЛА (has_used_trial = 0)
@@ -183,7 +183,7 @@ async def auto_sync_loop(db, panel):
             marzban_data = await panel.get_all_users()
             if marzban_data and 'users' in marzban_data:
                 for m_user in marzban_data['users']:
-                    if m_user.get('username').isdigit():
+                    if (m_user.get('username') or '').isdigit():
                         tg_id = int(m_user.get('username'))
                         expiry_ms = m_user.get('expire', 0) * 1000
                         is_active = 1 if m_user.get('status') == 'active' else 0

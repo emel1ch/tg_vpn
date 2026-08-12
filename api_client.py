@@ -106,24 +106,47 @@ class PanelAPI:
                     return {"success": False, "error": await resp.text()}
 
     async def get_all_users(self):
-        """Получает список всех пользователей из Marzban"""
+        """
+        Получает список всех пользователей из Marzban с пагинацией
+        (/api/users отдает {"users": [...], "total": N} постранично через
+        offset/limit — без пагинации при росте базы часть юзеров терялась
+        бы в /sync, /export и автосинке).
+        """
         if not self.token: await self._get_token()
-        url = f"{self.base_url}/api/users"
+
+        limit = 200
+        offset = 0
+        all_users = []
+        total = None
 
         try:
             async with aiohttp.ClientSession() as session:
-                headers = {"Authorization": f"Bearer {self.token}"}
-                async with session.get(url, headers=headers) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    elif resp.status == 401:  # Токен истек
-                        logging.info("Токен Marzban истек при get_all_users. Обновляем...")
-                        await self._get_token()
-                        headers = {"Authorization": f"Bearer {self.token}"}
-                        async with session.get(url, headers=headers) as retry_resp:
-                            if retry_resp.status == 200:
-                                return await retry_resp.json()
-                    return None
+                while True:
+                    headers = {"Authorization": f"Bearer {self.token}"}
+                    url = f"{self.base_url}/api/users?offset={offset}&limit={limit}"
+                    async with session.get(url, headers=headers) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                        elif resp.status == 401:  # Токен истек
+                            logging.info("Токен Marzban истек при get_all_users. Обновляем...")
+                            await self._get_token()
+                            headers = {"Authorization": f"Bearer {self.token}"}
+                            async with session.get(url, headers=headers) as retry_resp:
+                                if retry_resp.status != 200:
+                                    return None
+                                data = await retry_resp.json()
+                        else:
+                            return None
+
+                    page_users = data.get('users', [])
+                    all_users.extend(page_users)
+                    total = data.get('total', len(all_users))
+
+                    offset += limit
+                    if not page_users or len(all_users) >= total:
+                        break
+
+            return {"users": all_users, "total": total}
         except Exception:
             return None
 
