@@ -10,7 +10,6 @@ from openpyxl.styles import Font
 from io import BytesIO
 from config import ADMIN_ID, REMOTE_GDRIVE, MARZBAN_DB_PATH, BOT_DB_PATH, INBOUND_ID,GROUP_ID
 
-router = Router()
 
 
 # ==========================================
