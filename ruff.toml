@@ -1,0 +1,6 @@
+line-length = 120
+
+[lint]
+# Legacy codebase: start with pyflakes + real syntax errors only.
+# Broaden the rule set incrementally in later phases as the code is cleaned up.
+select = ["E9", "F"]

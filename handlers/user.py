@@ -131,16 +131,6 @@ async def give_trial(callback: types.CallbackQuery, db, panel, bot: Bot):
         reply_markup=get_main_menu(has_used_trial=True), parse_mode="HTML")
 
 
-from datetime import datetime
-import time
-from aiogram import types, F
-
-
-from datetime import datetime
-import time
-from aiogram import types, F
-
-
 @router.callback_query(F.data == "status")
 async def show_status(callback: types.CallbackQuery, db, panel):
     await callback.answer()

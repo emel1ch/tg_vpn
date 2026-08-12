@@ -1,8 +1,5 @@
 import os
 from dotenv import load_dotenv
-from datetime import datetime
-import json      # <--- ДОБАВИТЬ
-import base64    # <--- ДОБАВИТЬ
 
 load_dotenv()
 

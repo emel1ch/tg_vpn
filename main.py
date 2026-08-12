@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from aiogram import Bot, Dispatcher,BaseMiddleware
 from config import BOT_TOKEN, DB_NAME, CHANNEL_ID
 from database import Database
@@ -6,6 +7,13 @@ from api_client import PanelAPI
 from handlers import user, payment, admin
 from utils.notifier import check_expiring_subs,start_reminder_loop, auto_sync_loop
 from aiogram.types import CallbackQuery
+
+if sys.stdout.encoding != "utf-8":
+    # Локальный запуск на Windows использует кодировку консоли (cp1251) вместо
+    # UTF-8, из-за чего print() с эмодзи падает с UnicodeEncodeError.
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 
 class SubCheckMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: CallbackQuery, data):
@@ -39,10 +47,12 @@ async def main():
     dp.include_router(user.router)
     dp.include_router(payment.router)
     dp.include_router(admin.router)
+
+    await db.create_tables()
+
     asyncio.create_task(check_expiring_subs(bot, db, panel))
     asyncio.create_task(start_reminder_loop(bot, db.db_file))
     asyncio.create_task(auto_sync_loop(db, panel))  # <--- Добавили наш часовой луп
-    await db.create_tables()
     print("🚀 Бот GTN VPN запущен!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
