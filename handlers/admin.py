@@ -644,6 +644,56 @@ async def export_excel_command(message: types.Message, db, panel):  # <--- До�
     )
 
 
+@router.message(Command("export_events"))
+async def export_events_command(message: types.Message, command: CommandObject, db):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    days = int(command.args) if command.args and command.args.isdigit() else 30
+    since_ts_ms = int(time.time() * 1000) - days * 24 * 60 * 60 * 1000
+
+    events = await db.get_events(since_ts_ms)
+    if not events:
+        return await message.answer(f"За последние {days} дн. событий не найдено.")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "События"
+
+    headers = ["TG ID", "Тип события", "Payload", "Дата/время"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for e in events:
+        ts_str = datetime.fromtimestamp(e['ts_ms'] / 1000).strftime('%d.%m.%Y %H:%M:%S')
+        ws.append([e['tg_id'], e['event_type'], e['payload'], ts_str])
+
+    for col in ws.columns:
+        max_length = 0
+        column = col[0].column_letter
+        for cell in col:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except Exception:
+                pass
+        ws.column_dimensions[column].width = min(max_length + 2, 60)
+
+    file_bytes = BytesIO()
+    wb.save(file_bytes)
+    file_bytes.seek(0)
+
+    date_str = datetime.now().strftime('%d_%m_%Y')
+    document = BufferedInputFile(file_bytes.read(), filename=f"Events_{days}d_{date_str}.xlsx")
+
+    await message.answer_document(
+        document,
+        caption=f"📊 <b>Выгрузка событий за {days} дн.</b>\n\nВсего записей: <b>{len(events)}</b>",
+        parse_mode="HTML"
+    )
+
+
 @router.message(Command("sync"))
 async def cmd_sync_users(message: types.Message, db, panel):
     if message.from_user.id != ADMIN_ID:
