@@ -5,7 +5,7 @@ from config import BOT_TOKEN, DB_NAME, CHANNEL_ID
 from database import Database
 from api_client import PanelAPI
 from handlers import user, payment, admin
-from utils.notifier import check_expiring_subs,start_reminder_loop, auto_sync_loop
+from utils.notifier import auto_sync_loop  # check_expiring_subs, start_reminder_loop отключены (см. ниже)
 from utils.snapshot import daily_snapshot_loop
 from aiogram.types import CallbackQuery
 
@@ -51,8 +51,8 @@ async def main():
 
     await db.create_tables()
 
-    asyncio.create_task(check_expiring_subs(bot, db, panel))
-    asyncio.create_task(start_reminder_loop(bot, db.db_file))
+    # asyncio.create_task(check_expiring_subs(bot, db, panel))  # отключено: все автоматические уведомления выключены
+    # asyncio.create_task(start_reminder_loop(bot, db.db_file))  # отключено: все автоматические уведомления выключены
     asyncio.create_task(auto_sync_loop(db, panel))  # <--- Добавили наш часовой луп
     asyncio.create_task(daily_snapshot_loop(db.db_file))
     print("🚀 Бот GTN VPN запущен!")
